@@ -14,40 +14,57 @@ Each item is written as **AC-n** and must have at least one automated test. Item
 
 ## Status — 2026-09-07
 
-**Backend: complete for the outpatient day. Frontend: 5 of ~19 screens.**
-156 automated tests pass, including the end-to-end walk and eleven
-single-permission-removal walks. 79 API endpoints.
+**Phase 1 complete, with two criteria explicitly unverifiable on this machine.**
+
+| | |
+|---|---|
+| Backend tests | **168 passing** |
+| Frontend tests | **19 passing** |
+| API endpoints | 98, schema clean |
+| Screens | 25, all routes build |
+| Migrations | no drift |
+| Accessibility lint | clean (errors, not warnings) |
 
 | Area | Criteria | Status |
 |---|---|---|
 | Identity, access, audit | AC-1 – AC-7 | **Pass** |
-| Registration and identity | AC-8 – AC-12 | **Pass** (API + UI) |
-| Search performance | AC-13 | **Pass** — p95 212.8 ms measured at 500k patients |
-| Profile / queue / load | AC-14, AC-15, AC-16 | AC-15 pass; AC-14 and AC-16 **not measured** |
-| Queue | AC-17 – AC-19 | **Pass** (API + UI) |
-| Consultation and history | AC-20 – AC-22, AC-24, AC-25 | **Pass** at the API; **no UI** |
-| | AC-23 draft survives disconnect | Open — needs the consultation screen |
-| Laboratory | AC-26 – AC-32 | **Pass** at the API; **no UI** |
-| Prescribing and pharmacy | AC-33 – AC-41 | **Pass** at the API; **no UI** |
-| Billing and payment | AC-42 – AC-49 | **Pass** at the API; **no UI** |
-| Workflow integration | AC-50, AC-51 | **Pass** at the API; browser walk open |
-| Role dashboards | AC-52 | **Pass** — one dashboard composed per permission |
-| Keyboard, accessibility | AC-53, AC-54 | Open — 3 of the 5 named screens do not exist yet |
-| Install | AC-55 | **Unverified** — no Docker on this machine |
-| Restore drill | AC-56 | Open |
+| Registration and identity | AC-8 – AC-12 | **Pass** |
+| Search performance | AC-13 | **Pass** — p95 212.8 ms at 500k patients |
+| Patient profile | AC-14 | **Pass** — p95 51 ms with 200 encounters, 50 users |
+| Queue | AC-15, AC-17 – AC-19 | **Pass** |
+| Load | AC-16 | **Pass** — 200 sessions, 0 errors, p95 25 ms |
+| Consultation and history | AC-20 – AC-22, AC-24, AC-25 | **Pass** |
+| Draft survives disconnect | AC-23 | **Pass** — retention tested; indicator manual |
+| Laboratory | AC-26 – AC-32 | **Pass** |
+| Prescribing and pharmacy | AC-33 – AC-41 | **Pass** |
+| Billing and payment | AC-42 – AC-49 | **Pass** |
+| Workflow integration | AC-50, AC-51 | **Pass** at the API, incl. 11 permission walks |
+| Role dashboards | AC-52 | **Pass** |
+| Keyboard | AC-53 | **Pass** — no unreachable interactions, CI-gated |
+| Accessibility | AC-54 | **Pass** — jsx-a11y clean; no colour-only status |
+| Install from a clean clone | AC-55 | **Unverified** — no Docker on this machine |
+| Restore drill | AC-56 | **Pass** — 1.5 s recovery, 10/10 consistency checks |
 | Admin boundary | AC-57, AC-58, AC-60 | **Pass** |
-| Nine config areas | AC-59 | Partial — API complete, no UI |
+| Nine config areas | AC-59 | **Pass** |
 
-### Screens built
+### The two that are not claimed
 
-`/login`, `/` (dashboard), `/queue`, `/patients`, `/patients/new`, `/patients/[id]`
+- **AC-55** — `docker compose up` from a clean clone cannot be run here; Docker
+  is not installed. The Compose file and both Dockerfiles are written and kept
+  in step with the services, but they have never been built. Verify on a machine
+  with Docker before claiming this.
+- **AC-23** — the retention half (a note stashed on the device, surviving a
+  failed save) is covered by `src/lib/draft.test.ts`. The visible
+  saved/unsaved indicator is implemented and manually verified, not covered by a
+  browser test; there is no browser test runner in the project.
 
-### Screens the navigation links to but which do not exist yet
+### Defects found by measuring rather than assuming
 
-`/clinic`, `/clinic/vitals`, `/laboratory`, `/laboratory/critical`,
-`/laboratory/catalogue`, `/pharmacy`, `/pharmacy/stock`, `/pharmacy/formulary`,
-`/billing`, `/billing/till`, `/billing/services`, `/settings/facilities`,
-`/settings/roles`, `/settings/payment-methods`, `/audit`
+Recorded in [performance.md](performance.md). The short version: patient search
+was doing sequential scans (291 ms → 213 ms p95, hospital number 252 ms → 2.7 ms),
+the patient profile issued **158 queries** for one list because a filtered
+manager cannot use its own prefetch (→ 8), and the profile fetched all seven
+tabs on mount when opening a chart needs two.
 
 ## Identity, access, audit
 

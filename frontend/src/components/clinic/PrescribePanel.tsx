@@ -465,7 +465,7 @@ function WarningList({ warnings }: { warnings: SafetyWarning[] }) {
   const LABEL = { critical: 'Critical', warning: 'Warning', advisory: 'Advisory' } as const
 
   return (
-    <ul className="grid gap-2" role="list">
+    <ul className="grid gap-2">
       {warnings.map((warning, index) => (
         <li
           key={`${warning.kind}-${index}`}
@@ -497,7 +497,7 @@ export function SafetyCapabilitySummary() {
   const capabilities = useSafetyCapabilities()
   if (!capabilities.data) return null
   return (
-    <ul className="grid gap-1.5" role="list">
+    <ul className="grid gap-1.5">
       {Object.entries(capabilities.data).map(([kind, capability]) => (
         <li key={kind} className="flex items-start gap-2 text-[12px]">
           <Badge tone={capability.active ? 'normal' : 'critical'}>

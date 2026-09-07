@@ -79,6 +79,8 @@ Gate additions: no two patients can occupy one bed under concurrent writes; ever
 entry names who administered and when; a discharge cannot complete with unreconciled
 inpatient charges.
 
+Acceptance criteria: [phase-2-acceptance.md](phase-2-acceptance.md) — AC-61 to AC-118.
+
 ## Phase 3 — Money and materials at depth
 
 Insurance/HMO: providers, plans, patient policies, coverage rules, preauthorization,

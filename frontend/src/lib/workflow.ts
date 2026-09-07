@@ -89,16 +89,29 @@ export function invoiceTone(status: string): Tone {
   return INVOICE[status]?.tone ?? 'idle'
 }
 
-/** Naira, the way a receipt prints it. */
-export function money(amount: string | number) {
-  const value = typeof amount === 'string' ? Number(amount) : amount
-  if (!Number.isFinite(value)) return '—'
+/**
+ * Naira, the way a receipt prints it.
+ *
+ * An absent amount renders as a dash, never as ₦0. `Number('')` is 0, so a
+ * missing value would otherwise display as "nothing owed" when it means
+ * "unknown" — a difference that matters at a cash desk.
+ */
+function toAmount(amount: string | number | null | undefined) {
+  if (amount === null || amount === undefined) return null
+  if (typeof amount === 'string' && amount.trim() === '') return null
+  const value = Number(amount)
+  return Number.isFinite(value) ? value : null
+}
+
+export function money(amount: string | number | null | undefined) {
+  const value = toAmount(amount)
+  if (value === null) return '—'
   return `₦${value.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-export function shortMoney(amount: string | number) {
-  const value = typeof amount === 'string' ? Number(amount) : amount
-  if (!Number.isFinite(value)) return '—'
+export function shortMoney(amount: string | number | null | undefined) {
+  const value = toAmount(amount)
+  if (value === null) return '—'
   return `₦${value.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`
 }
 

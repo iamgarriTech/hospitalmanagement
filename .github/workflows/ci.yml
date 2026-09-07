@@ -65,3 +65,36 @@ jobs:
       - run: pytest
       - name: Audit chain verifies
         run: python backend/manage.py migrate && python backend/manage.py verify_audit_chain
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Types
+        run: npx tsc --noEmit
+      - name: Accessibility and keyboard rules
+        # AC-53 and AC-54 are acceptance criteria, so these fail the build
+        # rather than printing warnings nobody reads.
+        run: npm run lint
+      - name: Tests
+        run: npm test
+      - name: No keyboard-unreachable interactions
+        # jsx-a11y does not flag a click handler on a table row, and one had
+        # slipped in. Checked directly so it cannot come back.
+        run: |
+          if grep -rniE '<(div|span|li|tr|td|p)[^>]*onClick' src --include='*.tsx'; then
+            echo "::error::Click handler on a non-interactive element — unreachable by keyboard."
+            exit 1
+          fi
+      - name: Build
+        run: npm run build

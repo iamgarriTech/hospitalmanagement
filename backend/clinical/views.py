@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.db.models import Prefetch
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status as http
@@ -42,9 +43,20 @@ class EncounterViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         required = self.required_permissions.get(self.action, "clinical.view_encounter")
+        # The version's author is read for every version, so it is joined
+        # inside the prefetch. `versions__diagnoses` alone leaves authored_by
+        # unfetched, which is one query per version — invisible on one record
+        # and 50 queries on a list.
         queryset = Encounter.objects.select_related(
             "patient", "clinician", "facility"
-        ).prefetch_related("versions__diagnoses")
+        ).prefetch_related(
+            Prefetch(
+                "versions",
+                queryset=EncounterVersion.objects.select_related(
+                    "authored_by"
+                ).prefetch_related("diagnoses"),
+            )
+        )
         if not user.is_superuser:
             granted = set(user.facilities_for(required))
             if None not in granted:

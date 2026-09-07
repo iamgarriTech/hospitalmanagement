@@ -327,6 +327,7 @@ function RoleEditor({
                         checked={held.has(permission.id)}
                         onChange={() => toggle(permission.id)}
                         disabled={!editable || update.isPending}
+                        aria-label={`${permission.name} (${permission.codename_full})`}
                         className="mt-0.5 size-3.5 rounded border-border"
                       />
                       <span className="min-w-0">

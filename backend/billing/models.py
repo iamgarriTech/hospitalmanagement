@@ -171,6 +171,13 @@ class Invoice(models.Model):
         "visits.Visit", on_delete=models.PROTECT, null=True, blank=True,
         related_name="invoices",
     )
+    # An inpatient stay bills to the admission, not to the attendance that
+    # started it: bed nights, ward medication and inpatient investigations
+    # accrue for weeks after the outpatient visit closed.
+    admission = models.ForeignKey(
+        "admissions.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="invoices",
+    )
     facility = models.ForeignKey(
         "facilities.Facility", on_delete=models.PROTECT, related_name="invoices"
     )
@@ -197,8 +204,13 @@ class Invoice(models.Model):
             # than being split across several bills at the cash desk.
             models.UniqueConstraint(
                 fields=["visit"],
-                condition=models.Q(status="draft"),
+                condition=models.Q(status="draft", admission__isnull=True),
                 name="one_draft_invoice_per_visit",
+            ),
+            models.UniqueConstraint(
+                fields=["admission"],
+                condition=models.Q(status="draft"),
+                name="one_draft_invoice_per_admission",
             ),
             models.CheckConstraint(
                 condition=models.Q(discount_amount__gte=0), name="discount_not_negative"
@@ -254,10 +266,16 @@ class Invoice(models.Model):
 
     @property
     def is_frozen(self):
-        """Reconciled money is not editable. Corrections are new entries."""
-        return self.payments.filter(
-            cashier_session__status=CashierSession.RECONCILED
-        ).exists()
+        """Reconciled money is not editable. Corrections are new entries.
+
+        Reads the prefetched payments rather than filtering them, for the same
+        reason as Encounter.current_version — a filtered manager cannot use the
+        prefetch cache, so this would be one extra query per invoice in a list.
+        """
+        return any(
+            payment.cashier_session.status == CashierSession.RECONCILED
+            for payment in self.payments.all()
+        )
 
 
 class InvoiceItem(models.Model):
@@ -407,10 +425,10 @@ def charge(*, visit, service_code, description, source_type, source_id, quantity
     if unit_price is None:
         if service is None:
             raise ValidationError(f"No service configured with code {service_code!r}.")
-        unit_price = service.price_at(visit.facility)
+        unit_price = service.price_at(facility)
         if unit_price is None:
             raise ValidationError(
-                f"{service.name} has no price configured for {visit.facility.code}."
+                f"{service.name} has no price configured for {facility.code}."
             )
 
     item, created = InvoiceItem.objects.get_or_create(

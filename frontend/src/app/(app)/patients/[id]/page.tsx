@@ -41,16 +41,32 @@ export default function PatientPage() {
   const { can } = useAuth()
   const [tab, setTab] = useState('overview')
 
+  /* Each tab fetches only when it is open.
+   *
+   * Loading all seven at once made opening a chart cost seven requests instead
+   * of two, and at fifty concurrent users that queueing was the whole reason
+   * the profile missed its one-second budget. A section nobody is looking at
+   * should not cost the server anything. React Query keeps what has been
+   * fetched, so switching back to a tab is instant. */
   const patient = usePatient(Number.isFinite(patientId) ? patientId : null)
   const visits = useVisitsForPatient(patientId)
-  const encounters = useEncounters({ patient: patientId, enabled: can('clinical.view_encounter') })
-  const vitals = useVitalsTrend(patientId, can('clinical.view_vitalsigns'))
-  const labs = useLabOrders({ patient: patientId, enabled: can('laboratory.view_laborder') })
+  const encounters = useEncounters({
+    patient: patientId,
+    enabled: can('clinical.view_encounter') && tab === 'encounters',
+  })
+  const vitals = useVitalsTrend(patientId, can('clinical.view_vitalsigns') && tab === 'vitals')
+  const labs = useLabOrders({
+    patient: patientId,
+    enabled: can('laboratory.view_laborder') && tab === 'laboratory',
+  })
   const prescriptions = usePrescriptions({
     patient: patientId,
-    enabled: can('pharmacy.view_prescription'),
+    enabled: can('pharmacy.view_prescription') && tab === 'medication',
   })
-  const invoices = useInvoices({ patient: patientId, enabled: can('billing.view_invoice') })
+  const invoices = useInvoices({
+    patient: patientId,
+    enabled: can('billing.view_invoice') && tab === 'billing',
+  })
   const accessLog = useAccessLog(
     patientId,
     can('patients.view_patient_access_log') && tab === 'access',

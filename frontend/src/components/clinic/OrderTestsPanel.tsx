@@ -105,6 +105,7 @@ export function OrderTestsPanel({
                         type="checkbox"
                         checked={chosen.includes(test.id)}
                         onChange={() => toggle(test.id)}
+                        aria-label={`${test.name}${test.is_panel ? ' (panel)' : ''}, ${test.specimen_type} specimen`}
                         className="mt-0.5 size-4 rounded border-border"
                       />
                       <span className="min-w-0">

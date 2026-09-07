@@ -112,15 +112,22 @@ function FacilityRow({
   }
 
   return (
-    <tr
-      className={isSelected ? 'bg-accent-muted/40' : 'cursor-pointer hover:bg-surface-muted/50'}
-      onClick={onSelect}
-    >
+    <tr className={isSelected ? 'bg-accent-muted/40' : 'hover:bg-surface-muted/50'}>
       <Td>
         {open ? (
           <Input value={name} onChange={(event) => setName(event.target.value)} aria-label="Facility name" />
         ) : (
-          <span className="font-semibold text-ink">{facility.name}</span>
+          <button
+            type="button"
+            onClick={onSelect}
+            aria-pressed={isSelected}
+            className="text-left font-semibold text-ink hover:text-accent hover:underline"
+          >
+            {facility.name}
+            <span className="sr-only">
+              {isSelected ? ' — showing departments' : ' — show departments'}
+            </span>
+          </button>
         )}
       </Td>
       <Td className="font-mono text-[11.5px]">{facility.code}</Td>
