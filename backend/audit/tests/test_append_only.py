@@ -85,3 +85,35 @@ def test_an_actor_who_has_acted_cannot_be_deleted(editor):
 
     with pytest.raises(ProtectedError):
         editor.delete()
+
+
+@pytest.mark.django_db
+def test_events_hashed_under_an_older_payload_shape_still_verify(editor):
+    """Adding a field to this model must not make existing history read as forged.
+
+    This is the regression that matters most in the whole suite: a false tampering alarm
+    across the entire log would destroy trust in it, and the failure appears only after
+    a migration, long after the change that caused it.
+    """
+    from django.utils import timezone
+
+    from audit.models import CURRENT_HASH_VERSION
+
+    legacy = AuditEvent(
+        occurred_at=timezone.now(),
+        action="legacy.event",
+        actor=editor,
+        actor_email=editor.email,
+        hash_version=1,
+        prev_hash=GENESIS_HASH,
+    )
+    assert "patient_id" not in legacy.hash_payload()
+    legacy.row_hash = legacy.compute_hash()
+    legacy.save(force_insert=True)
+
+    current = AuditEvent.record(action="current.event", actor=editor)
+    assert current.hash_version == CURRENT_HASH_VERSION
+    assert "patient_id" in current.hash_payload()
+
+    ok, problems = AuditEvent.verify_chain()
+    assert ok, problems

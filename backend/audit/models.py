@@ -18,6 +18,13 @@ from django.utils import timezone
 
 GENESIS_HASH = "0" * 64
 
+# The hashed payload shape is versioned, and every row records the version it was
+# hashed under. Without this, adding a field to this model silently invalidates every
+# historical hash and the whole log reads as tampered — which is exactly the alarm you
+# never want to be false. Bump this when the payload changes, and extend hash_payload
+# to keep reproducing older shapes verbatim.
+CURRENT_HASH_VERSION = 2
+
 
 class AuditEvent(models.Model):
     ALLOWED = "allowed"
@@ -48,6 +55,14 @@ class AuditEvent(models.Model):
         blank=True,
         related_name="audit_events",
     )
+    patient = models.ForeignKey(
+        "patients.Patient",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="audit_events",
+        help_text="Which patient this action concerned, where one applies.",
+    )
     resource_type = models.CharField(max_length=100, blank=True, db_index=True)
     resource_id = models.CharField(max_length=64, blank=True, db_index=True)
 
@@ -60,6 +75,7 @@ class AuditEvent(models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     user_agent = models.CharField(max_length=400, blank=True)
 
+    hash_version = models.PositiveSmallIntegerField(default=CURRENT_HASH_VERSION)
     prev_hash = models.CharField(max_length=64)
     row_hash = models.CharField(max_length=64, unique=True)
 
@@ -73,7 +89,8 @@ class AuditEvent(models.Model):
     # --- hashing -------------------------------------------------------------
 
     def hash_payload(self):
-        return {
+        """Reproduce the payload for this row's own hash version, not the current one."""
+        payload = {
             "prev_hash": self.prev_hash,
             "occurred_at": self.occurred_at.isoformat(),
             "action": self.action,
@@ -86,6 +103,9 @@ class AuditEvent(models.Model):
             "changes": self.changes,
             "reason": self.reason,
         }
+        if self.hash_version >= 2:
+            payload["patient_id"] = self.patient_id
+        return payload
 
     def compute_hash(self):
         canonical = json.dumps(
@@ -114,6 +134,7 @@ class AuditEvent(models.Model):
         resource_type="",
         resource_id="",
         facility=None,
+        patient=None,
         before=None,
         after=None,
         reason="",
@@ -126,6 +147,10 @@ class AuditEvent(models.Model):
             resource_id = str(resource.pk)
             if facility is None:
                 facility = getattr(resource, "facility", None)
+            if patient is None:
+                patient = resource if resource.__class__.__name__ == "Patient" else getattr(
+                    resource, "patient", None
+                )
 
         changes = {}
         if before is not None:
@@ -141,6 +166,7 @@ class AuditEvent(models.Model):
             actor=actor if actor_is_real else None,
             actor_email=getattr(actor, "email", "") or "",
             facility=facility,
+            patient=patient,
             resource_type=resource_type,
             resource_id=resource_id,
             changes=changes,
@@ -175,7 +201,8 @@ class AuditEvent(models.Model):
             if recomputed != event.row_hash:
                 problems.append(
                     f"event {event.id}: contents altered "
-                    f"(stored {event.row_hash[:12]}…, recomputed {recomputed[:12]}…)"
+                    f"(stored {event.row_hash[:12]}…, recomputed {recomputed[:12]}…, "
+                    f"hash version {event.hash_version})"
                 )
             expected_prev = event.row_hash
         return (not problems), problems

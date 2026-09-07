@@ -4,9 +4,13 @@ from rest_framework.routers import DefaultRouter
 
 from accounts.views import CsrfView, LoginView, LogoutView, MeView
 from facilities.views import FacilityViewSet
+from patients.views import PatientViewSet
+from visits.views import VisitViewSet
 
 router = DefaultRouter()
 router.register("facilities", FacilityViewSet, basename="facility")
+router.register("patients", PatientViewSet, basename="patient")
+router.register("visits", VisitViewSet, basename="visit")
 
 urlpatterns = [
     path("api/auth/csrf/", CsrfView.as_view(), name="csrf"),

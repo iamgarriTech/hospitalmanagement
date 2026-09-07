@@ -10,6 +10,7 @@ from django.db import transaction
 
 from accounts.models import Role, RoleAssignment, User
 from facilities.models import Clinic, Department, Facility, Organization
+from patients.models import NumberSequence
 
 DEMO_PASSWORD = "demo-password-not-for-real-use"
 
@@ -26,17 +27,45 @@ DEPARTMENTS = [
     ("Billing", "BIL", []),
 ]
 
-# Phase 0 only defines facility permissions, so these sets are thin on purpose. They
-# grow as each Phase 1 slice adds its own permissions.
+# Permission sets grow as each Phase 1 slice adds its own. Qualified as app.codename.
 ROLES = {
-    "Hospital Administrator": ["view_facility", "add_facility", "change_facility"],
-    "Facility Manager": ["view_facility", "change_facility"],
-    "Receptionist": ["view_facility"],
-    "Nurse": ["view_facility"],
-    "Doctor": ["view_facility"],
-    "Pharmacist": ["view_facility"],
-    "Laboratory Scientist": ["view_facility"],
-    "Cashier": ["view_facility"],
+    "Hospital Administrator": [
+        "facilities.view_facility", "facilities.add_facility", "facilities.change_facility",
+        "patients.view_patient", "patients.view_patient_access_log",
+    ],
+    "Facility Manager": ["facilities.view_facility", "facilities.change_facility"],
+    "Receptionist": [
+        "facilities.view_facility",
+        "patients.view_patient", "patients.add_patient", "patients.change_patient",
+        "visits.view_visit", "visits.check_in_patient", "visits.move_queue",
+        "visits.change_visit",
+    ],
+    "Medical Records Officer": [
+        "facilities.view_facility",
+        "patients.view_patient", "patients.add_patient", "patients.change_patient",
+        "patients.merge_patient", "patients.register_duplicate_patient",
+        "patients.view_patient_access_log",
+    ],
+    "Nurse": [
+        "facilities.view_facility", "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+    ],
+    "Doctor": [
+        "facilities.view_facility", "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+    ],
+    "Pharmacist": [
+        "facilities.view_facility", "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+    ],
+    "Laboratory Scientist": [
+        "facilities.view_facility", "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+    ],
+    "Cashier": [
+        "facilities.view_facility", "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+    ],
 }
 
 STAFF = [
@@ -48,6 +77,7 @@ STAFF = [
     ("pharmacist@demo.test", "Yemi Adeyemi", "Pharmacist", "MAIN"),
     ("lab@demo.test", "Ibrahim Sani", "Laboratory Scientist", "MAIN"),
     ("cashier@demo.test", "Blessing Uche", "Cashier", "MAIN"),
+    ("records@demo.test", "Segun Adewale", "Medical Records Officer", "MAIN"),
 ]
 
 
@@ -89,14 +119,25 @@ class Command(BaseCommand):
                     defaults={"name": clinic_name},
                 )
 
+        NumberSequence.objects.get_or_create(
+            key="hospital_number",
+            defaults={"prefix": "ILS", "include_year": True, "width": 5},
+        )
+        NumberSequence.objects.get_or_create(
+            key="visit_number",
+            defaults={"prefix": "V", "include_year": True, "width": 6},
+        )
+
         roles = {}
-        for role_name, codenames in ROLES.items():
+        for role_name, qualified in ROLES.items():
             role, _ = Role.objects.get_or_create(name=role_name)
-            role.permissions.set(
-                Permission.objects.filter(
-                    content_type__app_label="facilities", codename__in=codenames
+            wanted = Permission.objects.none()
+            for entry in qualified:
+                app_label, codename = entry.split(".")
+                wanted = wanted | Permission.objects.filter(
+                    content_type__app_label=app_label, codename=codename
                 )
-            )
+            role.permissions.set(wanted)
             roles[role_name] = role
 
         for email, full_name, role_name, facility_code in STAFF:

@@ -4,6 +4,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role, RoleAssignment, User
 from facilities.models import Organization, Facility
+from patients.models import NumberSequence
 
 BACKEND = "accounts.backends.EmailBackend"
 PASSWORD = "correct-horse-battery"
@@ -69,13 +70,93 @@ def api():
     return APIClient()
 
 
-@pytest.fixture
-def as_viewer(api, viewer):
-    api.force_login(viewer, backend=BACKEND)
-    return api
+def _client_for(user):
+    client = APIClient()
+    client.force_login(user, backend=BACKEND)
+    return client
 
 
 @pytest.fixture
-def as_editor(api, editor):
-    api.force_login(editor, backend=BACKEND)
-    return api
+def as_viewer(viewer):
+    return _client_for(viewer)
+
+
+@pytest.fixture
+def as_editor(editor):
+    return _client_for(editor)
+
+
+@pytest.fixture
+def hospital_numbers(db):
+    return NumberSequence.objects.create(
+        key="hospital_number", prefix="ILS", include_year=True, width=5
+    )
+
+
+def _role(name, *qualified):
+    role = Role.objects.create(name=name)
+    role.permissions.add(*[perm(*entry.split(".")) for entry in qualified])
+    return role
+
+
+@pytest.fixture
+def receptionist(db, facility_a, hospital_numbers):
+    """Can register and search, cannot merge or override a suspected duplicate."""
+    user = User.objects.create_user("front@example.test", "Chidi Front", PASSWORD)
+    role = _role(
+        "Receptionist",
+        "patients.view_patient",
+        "patients.add_patient",
+        "patients.change_patient",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def records_officer(db, facility_a, hospital_numbers):
+    user = User.objects.create_user("records@example.test", "Sade Records", PASSWORD)
+    role = _role(
+        "Medical Records Officer",
+        "patients.view_patient",
+        "patients.add_patient",
+        "patients.change_patient",
+        "patients.merge_patient",
+        "patients.register_duplicate_patient",
+        "patients.view_patient_access_log",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_reception(receptionist):
+    return _client_for(receptionist)
+
+
+@pytest.fixture
+def as_records(records_officer):
+    return _client_for(records_officer)
+
+
+@pytest.fixture
+def patient_payload(facility_a):
+    def build(**overrides):
+        payload = {
+            "given_name": "Amina",
+            "family_name": "Yusuf",
+            "other_names": "",
+            "date_of_birth": "1991-04-17",
+            "sex": "female",
+            "phone_primary": "08031234567",
+            "address_line": "12 Adeola Street",
+            "city": "Ilesa",
+            "state": "Osun",
+            "blood_group": "O+",
+            "genotype": "AS",
+            "facility": facility_a.pk,
+        }
+        payload.update(overrides)
+        return payload
+
+    return build

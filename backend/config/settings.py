@@ -29,12 +29,15 @@ INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
+    "django.contrib.postgres",
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
     "core",
     "accounts",
     "facilities",
+    "patients",
+    "visits",
     "audit",
 ]
 
@@ -82,6 +85,15 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# The frontend is deployed on a different domain, so the browser never calls Django
+# directly: Next.js proxies server-side and re-issues Set-Cookie on its own host. That
+# keeps the session cookie first-party (Safari and Chrome block third-party cookies, so
+# a cross-site session would fail on iPads) and means Django needs no CORS.
+# Django still validates CSRF, so the frontend origin must be trusted here.
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS", default=["http://localhost:3000"]
+)
+
 # Guarantee 9: no authentication credential readable by JavaScript. Sessions, not tokens.
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -118,6 +130,18 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Without these, two models both having a `status` field generate types called
+    # StatusA97Enum in the TypeScript client. The generated client is read by people.
+    "ENUM_NAME_OVERRIDES": {
+        "PatientStatusEnum": "patients.models.Patient.STATUS_CHOICES",
+        "VisitStatusEnum": "visits.models.Visit.STATUS_CHOICES",
+        "VisitTypeEnum": "visits.models.Visit.TYPE_CHOICES",
+        "SexEnum": "patients.models.Patient.SEX_CHOICES",
+        "BloodGroupEnum": "patients.models.Patient.BLOOD_GROUPS",
+        "GenotypeEnum": "patients.models.Patient.GENOTYPES",
+        "AllergySeverityEnum": "patients.models.PatientAllergy.SEVERITIES",
+        "AuditOutcomeEnum": "audit.models.AuditEvent.OUTCOME_CHOICES",
+    },
 }
 
 # Brute-force protection (AC-6)

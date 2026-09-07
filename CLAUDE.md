@@ -59,7 +59,10 @@ mechanisms that work well for some of these; treat them as suggestions.
    re-render differently under a future code set, and must be able to carry more than one
    coding system.
 9. **No authentication credential readable by JavaScript.** Patient records make an XSS
-   payoff too expensive.
+   payoff too expensive. The frontend and API sit on **different domains**, so the browser
+   talks only to Next.js, which proxies to Django server-side and re-issues the session
+   cookie on its own host — first-party, `HttpOnly`, and unaffected by third-party cookie
+   blocking. No JWT in browser storage, no CORS on Django.
 10. **External-service failure never blocks a clinical or financial write.** Internet loss
     must not roll back a consultation, a dispense, or a payment.
 11. **No `django.contrib.admin`** — not installed, not mounted. It bypasses permissions and
