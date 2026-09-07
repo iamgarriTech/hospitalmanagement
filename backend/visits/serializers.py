@@ -44,12 +44,14 @@ class QueueRowSerializer(serializers.ModelSerializer):
     waiting_minutes = serializers.IntegerField(read_only=True)
     clinic_name = serializers.CharField(source="clinic.name", read_only=True, default=None)
     allergies = serializers.SerializerMethodField()
+    allowed_transitions = serializers.SerializerMethodField()
 
     class Meta:
         model = Visit
         fields = [
             "id", "visit_number", "patient", "status", "visit_type", "clinic_name",
             "arrived_at", "waiting_minutes", "reason", "allergies",
+            "allowed_transitions",
         ]
 
     def get_allergies(self, visit) -> list[str]:
@@ -60,6 +62,15 @@ class QueueRowSerializer(serializers.ModelSerializer):
             for allergy in visit.patient.allergies.all()
             if allergy.is_active
         ]
+
+    def get_allowed_transitions(self, visit) -> list[str]:
+        """So the board can offer only legal moves.
+
+        Sent from here rather than reproduced in the client: a second copy of the
+        state machine is a second thing to keep correct, and the one in the
+        browser would be the one that drifts.
+        """
+        return sorted(visit.TRANSITIONS.get(visit.status, set()))
 
 
 class MoveSerializer(serializers.Serializer):

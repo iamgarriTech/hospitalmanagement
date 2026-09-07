@@ -36,16 +36,6 @@ class CsrfView(APIView):
 
 
 @extend_schema(
-    request=LoginSerializer,
-    responses={
-        200: UserSerializer,
-        401: OpenApiResponse(DETAIL_RESPONSE, "Invalid credentials"),
-        429: OpenApiResponse(DETAIL_RESPONSE, "Locked after repeated failures"),
-    },
-    summary="Log in",
-    tags=["auth"],
-)
-@extend_schema(
     responses={200: OpenApiResponse(description="Deployment metadata for the sign-in screen")},
     summary="Public deployment metadata",
     tags=["auth"],
@@ -110,6 +100,16 @@ class MetaView(APIView):
         return ranked
 
 
+@extend_schema(
+    request=LoginSerializer,
+    responses={
+        200: UserSerializer,
+        401: OpenApiResponse(DETAIL_RESPONSE, "Invalid credentials"),
+        429: OpenApiResponse(DETAIL_RESPONSE, "Locked after repeated failures"),
+    },
+    summary="Log in",
+    tags=["auth"],
+)
 class LoginView(APIView):
     permission_classes = [AllowAny]
 

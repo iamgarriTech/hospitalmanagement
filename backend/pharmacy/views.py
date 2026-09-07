@@ -356,7 +356,12 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
                 "items": [
                     {
                         "item_id": item.id,
+                        # The id as well as the label: the dispensing screen has to
+                        # match batches to this exact presentation, and matching on
+                        # a display string is how the wrong strength gets issued.
+                        "medication_id": item.medication_id,
                         "medication": str(item.medication),
+                        "dispensing_unit": item.medication.dispensing_unit,
                         "outstanding": item.quantity_outstanding,
                         "instructions": item.instructions,
                         "overridden_warnings": [

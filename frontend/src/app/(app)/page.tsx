@@ -26,6 +26,7 @@ import {
   type Tone,
 } from '@/components/ui'
 import { useAuth } from '@/lib/auth'
+import { queueLabel, queueTone } from '@/lib/workflow'
 import {
   useCriticalResults,
   useLabWorklist,
@@ -665,37 +666,6 @@ function Figure({
       <div className={`mt-2 text-[24px] leading-none font-semibold ${toneClass}`}>{value}</div>
     </div>
   )
-}
-
-const QUEUE_LABELS: Record<string, string> = {
-  scheduled: 'Scheduled',
-  waiting: 'Waiting',
-  called: 'Called',
-  in_consultation: 'With clinician',
-  sent_for_investigation: 'At laboratory',
-  sent_to_pharmacy: 'At pharmacy',
-  sent_for_billing: 'At cash desk',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-}
-
-const QUEUE_TONES: Record<string, Tone> = {
-  scheduled: 'idle',
-  waiting: 'idle',
-  called: 'accent',
-  in_consultation: 'progress',
-  sent_for_investigation: 'progress',
-  sent_to_pharmacy: 'progress',
-  sent_for_billing: 'abnormal',
-  completed: 'normal',
-  cancelled: 'idle',
-}
-
-export function queueLabel(status: string) {
-  return QUEUE_LABELS[status] ?? status
-}
-export function queueTone(status: string): Tone {
-  return QUEUE_TONES[status] ?? 'idle'
 }
 
 function DataNotice({ failed = false }: { failed?: boolean }) {

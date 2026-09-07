@@ -56,16 +56,23 @@ ROLES = {
     "Hospital Administrator": {
         "discount_limit": "100000.00",
         "permissions": [
-            "facilities.*", "patients.view_patient", "patients.view_patient_access_log",
+            "facilities.*",
+            # Configuration: roles, staff access, identifier formats.
+            "accounts.*",
+            "patients.view_patient", "patients.view_patient_access_log",
+            "patients.view_numbersequence", "patients.change_numbersequence",
             "visits.view_visit", "clinical.view_encounter", "clinical.view_vitalsigns",
             "laboratory.view_laborder", "laboratory.*_labtest*",
             "pharmacy.view_medication", "pharmacy.*_medication*", "billing.*",
+            # The log is a privacy surface in its own right, so it is granted
+            # explicitly rather than swept in by a wildcard.
+            "audit.view_auditevent",
         ],
     },
     "Medical Records Officer": {
         "permissions": [
             "facilities.view_facility", "patients.*", "visits.view_visit",
-            "clinical.view_encounter",
+            "clinical.view_encounter", "audit.view_auditevent",
         ],
     },
     "Receptionist": {

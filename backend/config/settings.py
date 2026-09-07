@@ -101,7 +101,10 @@ AUTH_PASSWORD_VALIDATORS = [
 # same-origin and defeat CSRF protection entirely.
 CSRF_TRUSTED_ORIGINS = env.list(
     "CSRF_TRUSTED_ORIGINS",
-    default=["http://localhost:3000", "http://127.0.0.1:3000"],
+    default=[
+        "http://localhost:3100", "http://127.0.0.1:3100",
+        "http://localhost:3000", "http://127.0.0.1:3000",
+    ],
 )
 
 # Guarantee 9: no authentication credential readable by JavaScript. Sessions, not tokens.

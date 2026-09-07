@@ -2,7 +2,15 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
+from accounts.config_views import PermissionViewSet, RoleViewSet, StaffViewSet
 from accounts.views import CsrfView, LoginView, LogoutView, MetaView, MeView
+from audit.views import AuditEventViewSet
+from core.config_views import (
+    ClinicViewSet,
+    DepartmentViewSet,
+    NumberSequenceViewSet,
+    OrganizationViewSet,
+)
 from facilities.views import FacilityViewSet
 from patients.views import PatientViewSet
 from billing.views import (
@@ -55,6 +63,14 @@ router.register("payment-methods", PaymentMethodViewSet, basename="paymentmethod
 router.register("invoices", InvoiceViewSet, basename="invoice")
 router.register("cashier-sessions", CashierSessionViewSet, basename="cashiersession")
 router.register("payments", PaymentViewSet, basename="payment")
+router.register("roles", RoleViewSet, basename="role")
+router.register("permissions", PermissionViewSet, basename="permission")
+router.register("staff", StaffViewSet, basename="staff")
+router.register("organizations", OrganizationViewSet, basename="organization")
+router.register("departments", DepartmentViewSet, basename="department")
+router.register("clinics", ClinicViewSet, basename="clinic")
+router.register("numbering", NumberSequenceViewSet, basename="numbersequence")
+router.register("audit-events", AuditEventViewSet, basename="auditevent")
 
 urlpatterns = [
     path("api/meta/", MetaView.as_view(), name="meta"),
