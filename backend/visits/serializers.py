@@ -32,7 +32,7 @@ class VisitSerializer(serializers.ModelSerializer):
             "closed_at", "created_at",
         ]
 
-    def get_allowed_transitions(self, visit):
+    def get_allowed_transitions(self, visit) -> list[str]:
         """The UI shows only the moves that are actually legal from here."""
         return sorted(visit.TRANSITIONS.get(visit.status, set()))
 
@@ -52,7 +52,7 @@ class QueueRowSerializer(serializers.ModelSerializer):
             "arrived_at", "waiting_minutes", "reason", "allergies",
         ]
 
-    def get_allergies(self, visit):
+    def get_allergies(self, visit) -> list[str]:
         # Surfaced on the queue itself: staff should not have to open a chart to learn
         # that the next patient is allergic to something.
         return [

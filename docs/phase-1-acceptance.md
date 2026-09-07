@@ -12,6 +12,32 @@ Each item is written as **AC-n** and must have at least one automated test. Item
 
 ---
 
+## Status — 2026-09-07
+
+Backend complete for the outpatient day; the frontend is not started, so the criteria
+that can only be met in a browser are open. **152 automated tests pass**, including the
+full end-to-end walk and eleven single-permission-removal walks.
+
+| Area | Criteria | Status |
+|---|---|---|
+| Identity, access, audit | AC-1 – AC-7 | **Pass** |
+| Registration and identity | AC-8 – AC-12 | **Pass** |
+| Search and performance | AC-13 | **Pass** — p95 212.8 ms measured at 500k patients |
+| | AC-14 – AC-16 | Open — not yet measured |
+| Queue | AC-17 – AC-19 | **Pass** |
+| Consultation and history | AC-20 – AC-22, AC-24, AC-25 | **Pass** |
+| | AC-23 (draft survives disconnect) | Open — frontend |
+| Laboratory | AC-26 – AC-32 | **Pass** |
+| Prescribing and pharmacy | AC-33 – AC-41 | **Pass** |
+| Billing and payment | AC-42 – AC-49 | **Pass** |
+| Workflow integration | AC-50, AC-51 | **Pass** at the API; UI walk open |
+| Dashboards, accessibility | AC-52 – AC-54 | Open — frontend |
+| Operations | AC-55 | **Unverified** — no Docker on the development machine |
+| | AC-56 (restore drill) | Open |
+| Configuration and admin | AC-57, AC-58, AC-60 | **Pass** |
+| | AC-59 (nine areas administrable) | Partial — API complete, no UI |
+
+
 ## Identity, access, audit
 
 - **AC-1** A role created at runtime with only `patient:read` can open a patient profile

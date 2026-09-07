@@ -71,6 +71,17 @@ class User(AbstractBaseUser):
             )
         return assignments.exists()
 
+    @property
+    def discount_limit(self):
+        """The most generous limit any of this user's roles allows."""
+        from decimal import Decimal
+
+        limits = [
+            assignment.role.discount_limit
+            for assignment in self.role_assignments.select_related("role")
+        ]
+        return max(limits) if limits else Decimal("0.00")
+
     def facilities_for(self, perm):
         """Facilities where this user holds ``perm``. None means organization-wide."""
         app_label, _, codename = perm.partition(".")
@@ -91,6 +102,10 @@ class Role(models.Model):
     description = models.TextField(blank=True)
     permissions = models.ManyToManyField(
         "auth.Permission", related_name="roles", blank=True
+    )
+    discount_limit = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Largest discount this role may apply without approval.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

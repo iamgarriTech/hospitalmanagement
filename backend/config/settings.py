@@ -38,6 +38,11 @@ INSTALLED_APPS = [
     "facilities",
     "patients",
     "visits",
+    "clinical",
+    "laboratory",
+    "pharmacy",
+    "billing",
+    "notifications",
     "audit",
 ]
 

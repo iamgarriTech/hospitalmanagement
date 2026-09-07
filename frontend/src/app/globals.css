@@ -1,0 +1,110 @@
+@import 'tailwindcss';
+
+/*
+  Design system for clinical software read for twelve hours a day under
+  fluorescent light. Dense, bordered, table-first. No gradients, no shadows,
+  no decorative colour.
+
+  The palette differs from a general admin theme in one way that matters
+  clinically: colour here is a *clinical signal*, so it is rationed. The
+  accent is deliberately BLUE and nothing else in the system is blue —
+  green means "within range", amber means "abnormal", red means "critical".
+  An accent that shared a hue with any of those would let a navigation
+  badge or a primary button read as a clinical status at a glance, which on
+  a results screen is a real hazard rather than a style problem.
+
+  Every status colour is paired with a word or an icon in the UI. Nothing in
+  this system is conveyed by colour alone — staff work with jaundiced
+  monitors, printed reports and colour-vision deficiency.
+*/
+@theme {
+  /* Base: a cool near-white rather than pure white for the page ground, so
+     the white cards and tables that sit on it have an edge without needing
+     a shadow. */
+  --color-bg: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f3f6f9;
+  --color-surface-sunken: #eaeff5;
+  --color-border: #dbe2ea;
+  --color-border-strong: #b3bfcd;
+
+  --color-ink: #0f1a2a;
+  --color-ink-muted: #51607a;
+  --color-ink-faint: #8492a8;
+
+  /* Institutional blue. Used for navigation, primary actions and focus —
+     never to mean anything clinical. */
+  --color-accent: #1a56b8;
+  --color-accent-hover: #14428f;
+  --color-accent-muted: #eaf1fd;
+
+  /* Sidebar: a deep desaturated navy rather than near-black, which reads
+     as equipment rather than as a consumer app. */
+  --color-rail: #16202f;
+  --color-rail-hover: #1e2b3d;
+
+  /* --- Clinical status. The only colours that carry meaning. --- */
+
+  /* Within range, verified, paid, completed. */
+  --color-normal: #0b6b37;
+  --color-normal-muted: #e6f4ea;
+
+  /* Out of range in either direction, and anything awaiting a person:
+     unverified results, outstanding balances, expiring stock. */
+  --color-abnormal: #91530a;
+  --color-abnormal-muted: #fdf3e3;
+
+  /* Critical values, allergies, expired stock, refused actions. Reserved
+     so that when it appears, it means someone must act now. */
+  --color-critical: #ad2116;
+  --color-critical-muted: #fdecea;
+
+  /* In progress: with a clinician, on the bench, part-dispensed. Distinct
+     from the accent so "where the patient is" never looks like a button. */
+  --color-progress: #4a5578;
+  --color-progress-muted: #eef0f6;
+
+  /* Nothing happening yet: waiting, ordered, draft. */
+  --color-idle: #51607a;
+  --color-idle-muted: #eef1f5;
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+  /* Tabular figures everywhere: haemoglobin values, doses, balances and
+     hospital numbers all appear in columns that must align. There is no
+     prose in this system that benefits from proportional numerals. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-accent-muted);
+}
+
+/* Visible focus is not optional here: the consultation, vitals, result-entry
+   and payment screens are all completable by keyboard, and staff working at
+   speed rely on seeing where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+@media print {
+  /* Reports and receipts are printed constantly. Drop the furniture. */
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}

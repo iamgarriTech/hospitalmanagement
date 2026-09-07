@@ -1,4 +1,4 @@
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status as http, viewsets
 from rest_framework.decorators import action
@@ -61,9 +61,10 @@ class VisitViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            visit = serializer.save(
-                checked_in_by=request.user, status=Visit.WAITING
-            )
+            # A savepoint, so the constraint violation does not poison the transaction
+            # and leave the handler below unable to query.
+            with transaction.atomic():
+                visit = serializer.save(checked_in_by=request.user, status=Visit.WAITING)
         except IntegrityError:
             open_visit = Visit.objects.filter(
                 patient_id=request.data.get("patient"), closed_at__isnull=True
