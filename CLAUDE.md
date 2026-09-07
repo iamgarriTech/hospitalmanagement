@@ -13,9 +13,10 @@ Decisions and their reasoning: `docs/decisions.md`.
   `pg_trgm`, `pgcrypto`, `uuid-ossp` available.
 - **Docker is not installed. Never run `docker` or `docker compose`.** Write the Compose
   file as the install deliverable; don't execute it.
-- Python 3.14 is installed but Django 5.2 LTS doesn't support it — install Python 3.13 and
-  pin Django 5.2 LTS in a venv.
-- Use `npm`, not `pnpm`. Node 20 is present and past EOL; 22 LTS preferred.
+- Python 3.14 + Django 6.1, in `.venv/` at the repo root. **Use the Python and Node
+  already on this machine.** Do not install language runtimes, do not change global
+  tooling, do not tell the user to upgrade theirs.
+- Use `npm` (the installed `pnpm` wants a newer Node than is here).
 - No Redis, no broker. The task queue is database-backed.
 
 ## Build order

@@ -1,0 +1,10 @@
+# Same origin for the SPA and the API, so session cookies are first-party and Django's
+# CSRF protection works as designed. No CORS surface.
+{$SITE_ADDRESS:localhost} {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

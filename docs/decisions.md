@@ -3,7 +3,7 @@
 Why things are the way they are. Mechanisms named here are what worked in the
 reasoning — not mandates.
 
-**Stack.** Django  + DRF, PostgreSQL 18, Next.js + React + TypeScript. DRF
+**Stack.** Django  + DRF, PostgreSQL , Next.js  + TypeScript. DRF
 serializers → drf-spectacular → OpenAPI → generated TS client; CI fails if the committed
 client is stale. TanStack Query on the client. pytest + pytest-django, Playwright for the
 end-to-end flow. Chosen over an all-TypeScript stack mainly because Django's ORM expresses

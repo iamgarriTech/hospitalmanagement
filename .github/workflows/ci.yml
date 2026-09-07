@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # the whole history is what gets published
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  licences:
+    name: Dependency licences
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r backend/requirements.txt pip-licenses
+      - name: Fail on copyleft dependencies
+        run: |
+          pip-licenses --format=csv --with-urls > licences.csv
+          if grep -Ei '(^|,)"?(GPL|AGPL|LGPL|SSPL)' licences.csv; then
+            echo "::error::Copyleft dependency found. A permissive licence is foreclosed by these."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: licences
+          path: licences.csv
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: hms
+          POSTGRES_PASSWORD: hms
+          POSTGRES_DB: hms_test
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+        ports: ["5432:5432"]
+    env:
+      DATABASE_URL: postgres://hms:hms@localhost:5432/hms_test
+      DJANGO_SECRET_KEY: ci-only
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - run: pip install -r backend/requirements-dev.txt
+      - name: No missing migrations
+        run: python backend/manage.py makemigrations --check --dry-run
+      - run: pytest
+      - name: Audit chain verifies
+        run: python backend/manage.py migrate && python backend/manage.py verify_audit_chain

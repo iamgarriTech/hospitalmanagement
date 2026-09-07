@@ -1,0 +1,78 @@
+# On-premises install: one server, one command. Never run in local development —
+# development uses the host PostgreSQL directly.
+name: hms
+
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-hms}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-hms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hms}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY in .env}
+      DJANGO_DEBUG: "0"
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost}
+    volumes:
+      - media:/app/backend/media
+    command: >
+      sh -c "python backend/manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --chdir backend --bind 0.0.0.0:8000 --workers 4"
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-hms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-hms}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_DEBUG: "0"
+    # Outbox delivery. Placeholder until the queue lands with the first external call.
+    command: sh -c "echo 'no queued work yet' && sleep infinity"
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      API_ORIGIN: http://api:8000
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api, web]
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  media:
+  caddy_data:
+  caddy_config:

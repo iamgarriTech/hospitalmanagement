@@ -1,0 +1,32 @@
+# secrets — see CLAUDE.md guarantee 12
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+
+# node
+node_modules/
+.next/
+out/
+next-env.d.ts
+
+# media / uploads (never in the repo)
+backend/media/
+backend/staticfiles/
+
+# os / editor
+.DS_Store
+.idea/
+*.swp
+ignoreitllm
