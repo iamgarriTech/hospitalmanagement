@@ -45,9 +45,11 @@ function rebindCookieToThisHost(setCookie: string, isSecureRequest: boolean) {
   return parts.join(';')
 }
 
-async function proxy(request: NextRequest, path: string[]) {
-  const search = request.nextUrl.search
-  const target = `${DJANGO_ORIGIN}/api/${path.join('/')}${search}`
+async function proxy(request: NextRequest) {
+  // Taken from the pathname rather than the matched segments, so the trailing
+  // slash Django insists on survives verbatim.
+  const path = request.nextUrl.pathname.replace(/^\/api/, '')
+  const target = `${DJANGO_ORIGIN}/api${path}${request.nextUrl.search}`
 
   const headers = new Headers()
   request.headers.forEach((value, key) => {
@@ -96,20 +98,8 @@ async function proxy(request: NextRequest, path: string[]) {
   })
 }
 
-type Context = { params: Promise<{ path: string[] }> }
-
-export async function GET(request: NextRequest, context: Context) {
-  return proxy(request, (await context.params).path)
-}
-export async function POST(request: NextRequest, context: Context) {
-  return proxy(request, (await context.params).path)
-}
-export async function PATCH(request: NextRequest, context: Context) {
-  return proxy(request, (await context.params).path)
-}
-export async function PUT(request: NextRequest, context: Context) {
-  return proxy(request, (await context.params).path)
-}
-export async function DELETE(request: NextRequest, context: Context) {
-  return proxy(request, (await context.params).path)
-}
+export const GET = proxy
+export const POST = proxy
+export const PATCH = proxy
+export const PUT = proxy
+export const DELETE = proxy

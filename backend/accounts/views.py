@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 
 from audit.models import AuditEvent
 
-from .models import FailedLoginAttempt
+from .models import FailedLoginAttempt, RoleAssignment
 from .serializers import LoginSerializer, UserSerializer
 
 
@@ -45,6 +45,71 @@ class CsrfView(APIView):
     summary="Log in",
     tags=["auth"],
 )
+@extend_schema(
+    responses={200: OpenApiResponse(description="Deployment metadata for the sign-in screen")},
+    summary="Public deployment metadata",
+    tags=["auth"],
+)
+class MetaView(APIView):
+    """What the sign-in screen needs before anyone has signed in.
+
+    Sample logins are served from here rather than hardcoded in the frontend for
+    two reasons: a hardcoded list drifts from the seed the moment a role is
+    renamed, and — more importantly — production must be able to withhold them.
+    When DEMO_MODE is off this returns an empty list, so there is no build of the
+    frontend that can leak working credentials.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        from facilities.models import Organization
+
+        organization = Organization.objects.first()
+        return Response(
+            {
+                # The hospital's own name, not the product's: staff signing in
+                # should see where they work.
+                "organization": organization.name if organization else None,
+                "demo_mode": settings.DEMO_MODE,
+                "sample_logins": self._sample_logins() if settings.DEMO_MODE else [],
+            }
+        )
+
+    @staticmethod
+    def _sample_logins():
+        """One account per role that has one, ordered the way the outpatient day
+        runs so an evaluator can walk it top to bottom."""
+        order = [
+            "Receptionist", "Nurse", "Doctor", "Consultant",
+            "Laboratory Scientist", "Laboratory Technician", "Pharmacist",
+            "Cashier", "Accountant", "Medical Records Officer",
+            "Hospital Administrator",
+        ]
+        seen = {}
+        for assignment in (
+            RoleAssignment.objects.select_related("user", "role", "facility")
+            .filter(user__is_active=True)
+            .order_by("user_id")
+        ):
+            role = assignment.role.name
+            if role in seen or not assignment.user.email.endswith("@demo.test"):
+                continue
+            seen[role] = {
+                "role": role,
+                "name": assignment.user.full_name,
+                "email": assignment.user.email,
+                "password": settings.DEMO_PASSWORD,
+                "facility": assignment.facility.code if assignment.facility else None,
+            }
+        ranked = sorted(
+            seen.values(),
+            key=lambda entry: order.index(entry["role"]) if entry["role"] in order else 99,
+        )
+        return ranked
+
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
 

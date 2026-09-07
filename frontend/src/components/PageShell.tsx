@@ -11,8 +11,8 @@ import type { ReactNode } from 'react'
  */
 export function PageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-full bg-surface-muted px-4 py-5 md:px-6 xl:px-8">
-      <div className="mx-auto max-w-[1180px]">{children}</div>
+    <div className="min-h-full px-4 py-6 md:px-7 lg:py-8 xl:px-9">
+      <div className="mx-auto max-w-[1440px]">{children}</div>
     </div>
   )
 }
@@ -29,10 +29,12 @@ export function PageHeading({
   className?: string
 }) {
   return (
-    <div className={`flex flex-wrap items-start justify-between gap-3 ${className}`}>
+    <div className={`flex flex-wrap items-start justify-between gap-4 ${className}`}>
       <div>
-        <h1 className="text-[21px] leading-none font-bold text-ink xl:text-[24px]">{title}</h1>
-        {subtitle && <p className="mt-2 text-[12.5px] leading-tight text-ink-muted">{subtitle}</p>}
+        <h1 className="text-[26px] leading-tight font-semibold tracking-[-0.035em] text-ink sm:text-[30px]">
+          {title}
+        </h1>
+        {subtitle && <p className="mt-2 text-sm leading-relaxed text-ink-muted">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -57,10 +59,19 @@ export function LoadingNotice({ children = 'Loading…' }: { children?: ReactNod
 
 /* --- tables ------------------------------------------------------------ */
 
-export function TableFrame({ children, minWidth = 760 }: { children: ReactNode; minWidth?: number }) {
+export function TableFrame({
+  children,
+  minWidth = 760,
+}: {
+  children: ReactNode
+  minWidth?: number
+}) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[12.5px]" style={{ minWidth }}>
+    <div className="table-scroll overflow-x-auto">
+      <table
+        className="w-full border-collapse text-[13px] [&_tbody_tr:last-child_td]:border-b-0 [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-surface-muted/70"
+        style={{ minWidth }}
+      >
         {children}
       </table>
     </div>
@@ -71,7 +82,7 @@ export function Th({ children, className = '' }: { children?: ReactNode; classNa
   return (
     <th
       scope="col"
-      className={`border-b border-border bg-surface-muted px-3 py-2 text-left text-[11px] font-bold tracking-wide text-ink-muted uppercase ${className}`}
+      className={`border-b border-border bg-surface-muted/70 px-5 py-3 text-left text-[11px] font-semibold tracking-[0.06em] text-ink-muted uppercase ${className}`}
     >
       {children}
     </th>
@@ -79,5 +90,9 @@ export function Th({ children, className = '' }: { children?: ReactNode; classNa
 }
 
 export function Td({ children, className = '' }: { children?: ReactNode; className?: string }) {
-  return <td className={`border-b border-border px-3 py-2 align-middle text-ink ${className}`}>{children}</td>
+  return (
+    <td className={`border-b border-border/80 px-5 py-4 align-middle text-ink ${className}`}>
+      {children}
+    </td>
+  )
 }

@@ -1,15 +1,12 @@
 import type { Metadata } from 'next'
-import { IBM_Plex_Mono, IBM_Plex_Sans } from 'next/font/google'
+import { IBM_Plex_Mono, Inter } from 'next/font/google'
 import { Providers } from './providers'
 import './globals.css'
 
-/* IBM Plex: designed for interfaces, with unambiguous 1/l/I and 0/O and
-   proper tabular figures — which matters when the number on screen is a dose. */
-const plexSans = IBM_Plex_Sans({
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
   display: 'swap',
-  variable: '--font-plex-sans',
+  variable: '--font-inter',
 })
 
 const plexMono = IBM_Plex_Mono({
@@ -20,13 +17,15 @@ const plexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'Hospital Management System',
-  description: 'Clinical, laboratory, pharmacy and billing workflows.',
+  applicationName: 'VitaCore',
+  title: { default: 'VitaCore — Hospital Management', template: '%s | VitaCore' },
+  description:
+    'VitaCore connects your hospital’s clinical, laboratory, pharmacy and billing workflows. Healthier people. Brighter tomorrows.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${plexMono.variable}`}>
       <body>
         <Providers>{children}</Providers>
       </body>

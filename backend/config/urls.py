@@ -2,7 +2,7 @@ from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
-from accounts.views import CsrfView, LoginView, LogoutView, MeView
+from accounts.views import CsrfView, LoginView, LogoutView, MetaView, MeView
 from facilities.views import FacilityViewSet
 from patients.views import PatientViewSet
 from billing.views import (
@@ -57,6 +57,7 @@ router.register("cashier-sessions", CashierSessionViewSet, basename="cashiersess
 router.register("payments", PaymentViewSet, basename="payment")
 
 urlpatterns = [
+    path("api/meta/", MetaView.as_view(), name="meta"),
     path("api/auth/csrf/", CsrfView.as_view(), name="csrf"),
     path("api/auth/login/", LoginView.as_view(), name="login"),
     path("api/auth/logout/", LogoutView.as_view(), name="logout"),

@@ -95,8 +95,13 @@ AUTH_PASSWORD_VALIDATORS = [
 # keeps the session cookie first-party (Safari and Chrome block third-party cookies, so
 # a cross-site session would fail on iPads) and means Django needs no CORS.
 # Django still validates CSRF, so the frontend origin must be trusted here.
+# Must list the *frontend* origins, because that is the Origin the browser
+# sends and the proxy forwards verbatim. Deliberately not laundered by the
+# proxy: rewriting Origin to Django's own host would make every request look
+# same-origin and defeat CSRF protection entirely.
 CSRF_TRUSTED_ORIGINS = env.list(
-    "CSRF_TRUSTED_ORIGINS", default=["http://localhost:3000"]
+    "CSRF_TRUSTED_ORIGINS",
+    default=["http://localhost:3000", "http://127.0.0.1:3000"],
 )
 
 # Guarantee 9: no authentication credential readable by JavaScript. Sessions, not tokens.
@@ -148,6 +153,12 @@ SPECTACULAR_SETTINGS = {
         "AuditOutcomeEnum": "audit.models.AuditEvent.OUTCOME_CHOICES",
     },
 }
+
+# Demo mode: surfaces sample logins on the sign-in screen so an evaluator can
+# get in. Defaults to DEBUG and must be explicitly enabled otherwise — printing
+# working credentials on a live hospital's login page is not a small mistake.
+DEMO_MODE = env.bool("DEMO_MODE", default=DEBUG)
+DEMO_PASSWORD = env("DEMO_PASSWORD", default="demo-password-not-for-real-use")
 
 # Brute-force protection (AC-6)
 FAILED_LOGIN_LIMIT = env("FAILED_LOGIN_LIMIT")
