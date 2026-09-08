@@ -1,6 +1,7 @@
 from django.contrib.auth.models import Permission
-from facilities.models import Facility
 from rest_framework import serializers
+
+from facilities.models import Facility
 
 from .models import User
 

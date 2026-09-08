@@ -7,7 +7,11 @@ from django.urls import reverse
 
 from audit.models import AuditEvent
 from pharmacy.models import (
-    Dispense, PrescriptionItem, StockBatch, StockMovement, take_from_batch,
+    Dispense,
+    PrescriptionItem,
+    StockBatch,
+    StockMovement,
+    take_from_batch,
 )
 
 

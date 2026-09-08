@@ -6,7 +6,6 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import status as http
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
 from audit.models import AuditEvent
@@ -14,14 +13,28 @@ from core.permissions import HasPermission
 from facilities.models import Facility
 
 from .models import (
-    CashierSession, Invoice, Payment, PaymentMethod, Refund, Service,
-    ServiceCategory, ServicePrice,
+    CashierSession,
+    Invoice,
+    Payment,
+    PaymentMethod,
+    Refund,
+    Service,
+    ServiceCategory,
+    ServicePrice,
 )
 from .serializers import (
-    CashierSessionSerializer, DiscountSerializer, InvoiceSerializer,
-    PaymentMethodSerializer, PaymentSerializer, ReconcileSerializer,
-    RecordPaymentSerializer, RefundRequestSerializer, ServiceCategorySerializer,
-    ServicePriceSerializer, ServiceSerializer, VoidSerializer,
+    CashierSessionSerializer,
+    DiscountSerializer,
+    InvoiceSerializer,
+    PaymentMethodSerializer,
+    PaymentSerializer,
+    ReconcileSerializer,
+    RecordPaymentSerializer,
+    RefundRequestSerializer,
+    ServiceCategorySerializer,
+    ServicePriceSerializer,
+    ServiceSerializer,
+    VoidSerializer,
 )
 
 

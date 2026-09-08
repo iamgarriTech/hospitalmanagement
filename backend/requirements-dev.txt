@@ -1,6 +1,11 @@
 -r requirements.txt
 pytest==8.4.2
 pytest-django==4.11.1
+# The backend had no linter while the frontend gated CI on eslint. That
+# asymmetry is how an inline `__import__`, a test asserting nothing and a dozen
+# dead imports all survived review. Configured in pyproject.toml to catch
+# defects, not to enforce a house style.
+ruff==0.16.6
 # Only for scripts/bench_inpatient.py — the load generator talks to a running
 # gunicorn over HTTP, which the test client cannot do.
 requests==2.34.2

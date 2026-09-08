@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from audit.models import AuditEvent
 from billing.models import Invoice
-from inpatient.models import Admission, Escalation, MedicationAdministration
+from inpatient.models import Admission
 from visits.models import Visit
 
 
@@ -65,9 +65,8 @@ def walk_the_stay(*, clients, hospital, users, stop_after=None):
 
     `stop_after` lets the permission tests assert *where* a walk fails.
     """
-    reception, doctor, nurse, lab, cashier, manager = (
-        clients["reception"], clients["doctor"], clients["nurse"],
-        clients["lab"], clients["cashier"], clients["manager"],
+    reception, doctor, nurse, cashier = (
+        clients["reception"], clients["doctor"], clients["nurse"], clients["cashier"],
     )
     facility = hospital["facility"]
     ward, beds = hospital["ward"], hospital["beds"]

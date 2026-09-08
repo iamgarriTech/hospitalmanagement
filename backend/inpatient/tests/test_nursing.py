@@ -19,11 +19,9 @@ from inpatient.models import (
     Escalation,
     EscalationThreshold,
     FluidBalanceEntry,
-    NursingAssessment,
     NursingNote,
 )
 from inpatient.services import fluid_balance
-
 
 # --- assessments --------------------------------------------------------------
 

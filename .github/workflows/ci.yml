@@ -60,11 +60,25 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -r backend/requirements-dev.txt
+      - name: Lint
+        # Defect rules, not style rules — see pyproject.toml. Fails the build
+        # rather than printing warnings nobody reads, which is how the frontend
+        # has been gated since Phase 1.
+        run: ruff check .
       - name: No missing migrations
         run: python backend/manage.py makemigrations --check --dry-run
       - run: pytest
       - name: Audit chain verifies
         run: python backend/manage.py migrate && python backend/manage.py verify_audit_chain
+      - name: No security warnings under production settings
+        # X_FRAME_OPTIONS was set for two phases with the middleware that sends
+        # it missing, so the header was never sent. Checked so that cannot
+        # happen again.
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: ci-only-key-long-enough-to-satisfy-the-check-000000
+          SECURE_HSTS_PRELOAD: "True"
+        run: python backend/manage.py check --deploy --fail-level WARNING
 
   frontend:
     name: Frontend

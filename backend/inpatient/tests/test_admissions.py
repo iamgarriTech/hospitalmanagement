@@ -5,7 +5,6 @@ unbilled or unpaid. A patient walking out with an unreconciled bill is money the
 hospital never sees and a record that cannot be closed.
 """
 from datetime import timedelta
-from decimal import Decimal
 
 import pytest
 from django.urls import reverse
@@ -16,7 +15,6 @@ from billing.models import Invoice
 from inpatient.models import Admission, AdmissionRequest, Bed, BedOccupancy
 from inpatient.services import charge_bed_nights, discharge, transfer
 from visits.models import Visit
-
 
 # --- requesting a bed ---------------------------------------------------------
 
@@ -118,7 +116,10 @@ def test_admitting_from_a_request_carries_the_clinical_detail_forward(
     assert admitted.data["bed"]["ward_name"] == "Male Medical Ward"
 
     # The request is closed out rather than left pending forever.
-    AdmissionRequest.objects.get(pk=created.data["id"]).status == AdmissionRequest.ADMITTED
+    assert (
+        AdmissionRequest.objects.get(pk=created.data["id"]).status
+        == AdmissionRequest.ADMITTED
+    )
 
     # AC-65: the queue reflects the admission rather than showing them twice.
     open_visit.refresh_from_db()
@@ -734,7 +735,7 @@ def test_the_discharge_summary_is_assembled_from_the_record(
     Nothing here is retyped: the reviews are the encounters, the results are the
     verified results, the medication is the discharge prescription.
     """
-    from clinical.models import Encounter, EncounterVersion, Diagnosis
+    from clinical.models import Diagnosis, Encounter, EncounterVersion
     from pharmacy.models import Prescription, PrescriptionItem
 
     encounter = Encounter.objects.create(

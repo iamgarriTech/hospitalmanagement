@@ -68,6 +68,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
 
 class DepartmentViewSet(viewsets.ModelViewSet):
+    queryset = Department.objects.none()
     serializer_class = DepartmentSerializer
     permission_classes = [HasPermission]
     http_method_names = ["get", "post", "patch", "head", "options"]
@@ -94,6 +95,7 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
 
 class ClinicViewSet(viewsets.ModelViewSet):
+    queryset = Clinic.objects.none()
     serializer_class = ClinicSerializer
     permission_classes = [HasPermission]
     http_method_names = ["get", "post", "patch", "head", "options"]

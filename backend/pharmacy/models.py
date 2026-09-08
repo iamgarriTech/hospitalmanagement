@@ -13,7 +13,7 @@ contraindications the hospital's own pharmacist maintains. Drug–drug interacti
 checking needs a licensed database and is *not* bundled, so the API states plainly that
 it is not running. A clinician who assumes a check exists prescribes as though it does.
 """
-from decimal import Decimal, InvalidOperation
+from decimal import InvalidOperation
 
 from django.conf import settings
 from django.core.exceptions import ValidationError

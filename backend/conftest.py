@@ -5,7 +5,7 @@ from django.contrib.auth.models import Permission
 from rest_framework.test import APIClient
 
 from accounts.models import Role, RoleAssignment, User
-from facilities.models import Organization, Facility
+from facilities.models import Facility, Organization
 from patients.models import NumberSequence
 
 BACKEND = "accounts.backends.EmailBackend"
@@ -483,7 +483,11 @@ def formulary(db, pharmacy_numbers, facility_a):
     from django.utils import timezone
 
     from pharmacy.models import (
-        ContraindicationRule, DoseRange, Medication, MedicationCategory, StockBatch,
+        ContraindicationRule,
+        DoseRange,
+        Medication,
+        MedicationCategory,
+        StockBatch,
     )
 
     antibiotics = MedicationCategory.objects.create(name="Antibiotics", display_order=1)
@@ -768,6 +772,128 @@ def billed_visit(as_doctor, open_visit, tariff):
     from billing.models import Invoice
 
     return Invoice.objects.get(visit=open_visit)
+
+
+# --- insurance ---------------------------------------------------------------
+
+@pytest.fixture
+def claim_numbers(db):
+    NumberSequence.objects.create(
+        key="claim_number", prefix="CLM", include_year=True, width=6
+    )
+
+
+@pytest.fixture
+def scheme(db, tariff, facility_a, claim_numbers):
+    """One HMO with one plan, and rules of every shape.
+
+    Deliberately mixed: a category rule, a service rule that overrides it, an
+    exclusion, a co-pay and a service nobody wrote a rule for — because those
+    five are the cases a single "percentage covered" column gets wrong.
+    """
+    from billing.models import Service, ServiceCategory, ServicePrice
+    from insurance.models import CoverageRule, InsuranceProvider, Plan
+
+    provider = InsuranceProvider.objects.create(
+        name="Hygeia HMO", code="HYG", provider_type=InsuranceProvider.HMO,
+        settlement_days=30,
+    )
+    plan = Plan.objects.create(
+        provider=provider, name="Gold", code="GOLD",
+        unruled_services=Plan.EXCLUDED, default_scheme_percent="100.00",
+    )
+
+    consultations = ServiceCategory.objects.get(name="Consultations")
+    laboratory = ServiceCategory.objects.get(name="Laboratory")
+
+    # Consultations at 90% for the category…
+    CoverageRule.objects.create(
+        plan=plan, category=consultations, basis=CoverageRule.PERCENTAGE,
+        scheme_percent="90.00",
+    )
+    # …but this one consultation in full, to prove the service rule wins.
+    CoverageRule.objects.create(
+        plan=plan, service=tariff["consult"], basis=CoverageRule.FULL,
+    )
+    # Laboratory with a flat patient co-pay.
+    CoverageRule.objects.create(
+        plan=plan, category=laboratory, basis=CoverageRule.FIXED_COPAY,
+        patient_copay="500.00",
+    )
+
+    cosmetic_category = ServiceCategory.objects.create(
+        name="Cosmetic", display_order=8
+    )
+    cosmetic = Service.objects.create(
+        category=cosmetic_category, name="Cosmetic procedure", code="COSM"
+    )
+    ServicePrice.objects.create(
+        service=cosmetic, facility=facility_a, amount="40000.00"
+    )
+    CoverageRule.objects.create(
+        plan=plan, category=cosmetic_category, basis=CoverageRule.EXCLUDED,
+        exclusion_reason="Cosmetic procedures are not a scheme benefit",
+    )
+
+    # And one service with no rule at all.
+    unruled_category = ServiceCategory.objects.create(
+        name="Physiotherapy", display_order=9
+    )
+    unruled = Service.objects.create(
+        category=unruled_category, name="Physiotherapy session", code="PHYSIO"
+    )
+    ServicePrice.objects.create(
+        service=unruled, facility=facility_a, amount="7000.00"
+    )
+
+    return {"provider": provider, "plan": plan, "cosmetic": cosmetic,
+            "unruled": unruled}
+
+
+@pytest.fixture
+def insured_patient(db, patient, scheme, records_officer):
+    """A patient holding a policy that is in force today."""
+    from datetime import timedelta
+
+    from insurance.models import PatientPolicy
+
+    PatientPolicy.objects.create(
+        patient=patient, plan=scheme["plan"], policy_number="HYG/12345",
+        starts_on=date.today() - timedelta(days=365),
+        ends_on=date.today() + timedelta(days=365),
+        recorded_by=records_officer,
+    )
+    return patient
+
+
+@pytest.fixture
+def billing_officer(db, facility_a):
+    """Runs the insurance desk: policies, eligibility, claims, provider money."""
+    user = User.objects.create_user("insurance@example.test", "Tolu Billing", PASSWORD)
+    role = _role(
+        "Billing Officer",
+        "patients.view_patient", "visits.view_visit",
+        "billing.view_invoice", "billing.change_invoice", "billing.view_service",
+        "billing.view_payment", "billing.view_paymentmethod",
+        "insurance.view_insuranceprovider", "insurance.add_insuranceprovider",
+        "insurance.change_insuranceprovider", "insurance.manage_coverage",
+        "insurance.view_plan", "insurance.add_plan", "insurance.change_plan",
+        "insurance.view_coveragerule", "insurance.add_coveragerule",
+        "insurance.view_patientpolicy", "insurance.add_patientpolicy",
+        "insurance.change_patientpolicy",
+        "insurance.view_eligibilitycheck", "insurance.verify_eligibility",
+        "insurance.view_preauthorisation", "insurance.request_preauthorisation",
+        "insurance.view_claimbatch", "insurance.add_claimbatch",
+        "insurance.submit_claim", "insurance.record_claim_outcome",
+        "insurance.view_providerpayment", "insurance.add_providerpayment",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_billing_officer(billing_officer):
+    return _client_for(billing_officer)
 
 
 # --- imaging -----------------------------------------------------------------
@@ -1073,8 +1199,7 @@ def as_ward_nurse(ward_nurse):
 @pytest.fixture
 def admission(db, patient, facility_a, ward, beds, ward_doctor, inpatient_numbers):
     """An admitted patient in the first bed."""
-    from inpatient.models import Admission
-    from inpatient.models import BedOccupancy
+    from inpatient.models import Admission, BedOccupancy
 
     record = Admission.objects.create(
         patient=patient, facility=facility_a,

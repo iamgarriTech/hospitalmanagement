@@ -23,7 +23,7 @@ from inpatient.services import (
     schedule_doses,
 )
 from patients.models import PatientAllergy
-from pharmacy.models import PrescriptionItem, StockBatch
+from pharmacy.models import StockBatch
 
 
 @pytest.mark.django_db

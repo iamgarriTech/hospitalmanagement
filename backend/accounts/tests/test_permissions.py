@@ -1,10 +1,10 @@
 """AC-1, AC-2, AC-3 and facility scoping — the authorization half of the Phase 0 gate."""
 import pytest
+from conftest import perm
 from django.urls import reverse
 
 from accounts.models import Role, RoleAssignment
 from audit.models import AuditEvent
-from conftest import perm
 from facilities.models import Facility
 
 

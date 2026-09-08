@@ -7,7 +7,6 @@ from django.urls import reverse
 
 from audit.models import AuditEvent
 from billing.models import CashierSession, Invoice, InvoiceItem, Payment, charge
-from laboratory.models import LabOrderItem
 
 PAYMENTS = reverse("payment-list")
 

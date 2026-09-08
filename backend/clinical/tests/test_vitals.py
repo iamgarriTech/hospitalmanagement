@@ -105,7 +105,7 @@ def test_diastolic_above_systolic_is_refused(as_nurse, open_visit, patient):
 @pytest.mark.django_db
 def test_a_trend_series_is_returned_for_charting(as_nurse, open_visit, patient):
     """AC-24: vital trends viewable over time."""
-    for day, (temp, systolic) in enumerate([("38.9", 130), ("38.1", 128), ("37.2", 122)]):
+    for temp, systolic in [("38.9", 130), ("38.1", 128), ("37.2", 122)]:
         as_nurse.post(
             VITALS,
             {"patient": patient.pk, "visit": open_visit.pk,

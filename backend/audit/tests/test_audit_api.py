@@ -4,11 +4,11 @@ The log's value rests on it being verifiable, so the verification is exposed —
 otherwise "tamper-evident" is a claim nobody can test.
 """
 import pytest
+from conftest import PASSWORD, _client_for, perm
 from django.urls import reverse
 
 from accounts.models import Role, RoleAssignment, User
 from audit.models import AuditEvent
-from conftest import PASSWORD, _client_for, perm
 
 
 @pytest.fixture

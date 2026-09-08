@@ -447,7 +447,8 @@ def _already_charged(*, source_type, source_id, visit=None, admission=None):
 
 @transaction.atomic
 def charge(*, service_code, description, source_type, source_id, visit=None,
-           admission=None, quantity=1, unit_price=None, actor=None):
+           admission=None, quantity=1, unit_price=None, actor=None,
+           service_date=None):
     """Add a charge for a clinical event, at most once.
 
     Called by the module that performed the act — the laboratory when an order
@@ -498,4 +499,20 @@ def charge(*, service_code, description, source_type, source_id, visit=None,
             "unit_price": unit_price,
         },
     )
+    if created:
+        # Coverage is resolved here, as the charge is raised, because this is
+        # the moment the rules were true. Resolving at invoice time would judge
+        # February's treatment by March's plan. `resolve` never refuses: a
+        # missing authorisation holds the claim, not the charge.
+        from insurance.coverage import resolve
+
+        resolve(
+            invoice_item=item,
+            service=service,
+            amount=item.amount,
+            patient=invoice.patient,
+            service_date=service_date,
+            visit=visit,
+            admission=admission,
+        )
     return item, created

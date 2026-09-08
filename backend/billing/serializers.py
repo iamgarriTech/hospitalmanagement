@@ -1,8 +1,15 @@
 from rest_framework import serializers
 
 from .models import (
-    CashierSession, Invoice, InvoiceItem, Payment, PaymentMethod, Refund,
-    Service, ServiceCategory, ServicePrice,
+    CashierSession,
+    Invoice,
+    InvoiceItem,
+    Payment,
+    PaymentMethod,
+    Refund,
+    Service,
+    ServiceCategory,
+    ServicePrice,
 )
 
 

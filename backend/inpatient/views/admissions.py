@@ -6,10 +6,12 @@ settled before a patient can leave are the substance of the phase, and a view is
 the wrong place to be able to read them.
 """
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.db.models import Prefetch
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status as http, viewsets
+from rest_framework import status as http
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -356,11 +358,9 @@ class AdmissionViewSet(FacilityScopedMixin, viewsets.ReadOnlyModelViewSet):
                 request=request,
             )
             return _validation_response(error)
-        except Exception as error:  # the exclusion constraint, when the bed is taken
-            from django.db import IntegrityError
-
-            if not isinstance(error, IntegrityError):
-                raise
+        except IntegrityError:
+            # The exclusion constraint, when the bed was taken between the
+            # check and the write.
             return Response(
                 {"detail": f"{serializer.validated_data['to_bed']} is occupied."},
                 status=http.HTTP_409_CONFLICT,

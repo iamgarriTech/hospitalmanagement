@@ -1,25 +1,63 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { BrandLogo } from '@/components/BrandLogo'
 import { useEffect, useState } from 'react'
+import { BrandLogo } from '@/components/BrandLogo'
 import {
-  ArrowRightIcon,
+  BedIcon,
+  BillingIcon,
   EyeIcon,
   EyeSlashIcon,
+  ImagingIcon,
   LabIcon,
   PatientsIcon,
+  PharmacyIcon,
+  QueueIcon,
   ShieldIcon,
   StethoscopeIcon,
 } from '@/components/icons'
 import { ApiError } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { type SampleLogin, useDeploymentMeta } from '@/lib/meta'
+import { useDeploymentMeta } from '@/lib/meta'
 
 const inputClass =
   'h-12 w-full rounded-xl border border-border-strong/70 bg-surface px-4 text-sm text-ink transition-colors placeholder:text-ink-faint focus:border-accent'
 const labelClass = 'mb-2 block text-[13px] font-medium text-ink'
 
+/**
+ * What the system covers. A statement of scope, not a pitch: staff already
+ * work here and do not need persuading, but a sign-in page with nothing on it
+ * tells a new member of staff nothing about where they have landed.
+ *
+ * These are the areas that actually exist, in the order the hospital runs.
+ * Adding one here that has not been built would be the worst kind of lie to
+ * put on a login screen.
+ */
+const AREAS = [
+  { icon: PatientsIcon, label: 'Patient records' },
+  { icon: QueueIcon, label: 'Clinic queue' },
+  { icon: StethoscopeIcon, label: 'Consultations' },
+  { icon: LabIcon, label: 'Laboratory' },
+  { icon: ImagingIcon, label: 'Radiology' },
+  { icon: BedIcon, label: 'Wards & beds' },
+  { icon: PharmacyIcon, label: 'Pharmacy' },
+  { icon: BillingIcon, label: 'Billing' },
+]
+
+/**
+ * The staff sign-in screen.
+ *
+ * The form is deliberately plain — one heading, two fields, and the single
+ * operational fact that affects staff, which is that repeated failures lock the
+ * account. No marketing: this is the first thing a nurse sees at the start of a
+ * shift, and the job is to get them in.
+ *
+ * Demo accounts are a select rather than a list of cards. There are seventeen
+ * roles, and seventeen buttons in a scrolling box is a worse way to pick one.
+ * It renders only when the *server* says the deployment is in demo mode, so no
+ * build of this page can show working credentials on a live hospital's login
+ * screen.
+ */
 export default function LoginPage() {
   const { user, isLoading, login } = useAuth()
   const router = useRouter()
@@ -57,95 +95,77 @@ export default function LoginPage() {
     }
   }
 
-  function fill(sample: SampleLogin) {
-    setEmail(sample.email)
-    setPassword(sample.password)
-    setError('')
-  }
-
-  const hospital = meta?.organization ?? 'Your hospital workspace'
+  const hospital = meta?.organization ?? null
 
   return (
-    <div className="min-h-screen bg-surface lg:grid lg:grid-cols-[0.95fr_1fr]">
+    <div className="min-h-screen bg-surface lg:grid lg:grid-cols-[0.9fr_1fr]">
       <div className="relative m-4 hidden min-h-[calc(100svh-2rem)] flex-col justify-between overflow-hidden rounded-[28px] bg-rail p-10 text-white lg:flex xl:p-14">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-40 -right-48 size-[600px] rounded-full border border-white/10 bg-white/[0.02]"
+          className="pointer-events-none absolute -top-40 -right-48 size-[620px] rounded-full border border-white/10 bg-white/[0.02]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-32 -bottom-52 size-[650px] rounded-full border-[80px] border-white/[0.025]"
+          className="pointer-events-none absolute -right-40 -bottom-56 size-[680px] rounded-full border-[72px] border-white/[0.022]"
         />
+
         <div className="relative">
-          <BrandLogo variant="light" className="w-[224px]" />
-          <p className="mt-3 text-xs tracking-[0.04em] text-white/60">Hospital management system</p>
-        </div>
-        <div className="relative py-16">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[11px] font-medium tracking-wide text-white/80">
-            <span className="size-1.5 rounded-full bg-[#b8b5ff]" /> Connected care starts here
-          </span>
-          <h1 className="mt-7 max-w-lg text-[48px] leading-[1.12] font-medium tracking-[-0.045em] xl:text-[58px]">
-            More time for
-            <br />
-            <span className="text-[#b8b5ff]">what matters.</span>
-          </h1>
-          <p className="mt-6 max-w-[360px] text-[15px] leading-7 text-white/65">
-            One workspace for your entire care team. Bring patients, people, and everyday hospital
-            operations together.
+          <BrandLogo variant="light" className="w-[214px]" />
+          <p className="mt-3 text-xs tracking-wider text-white/55">
+            Hospital management system
           </p>
-          <div className="mt-12 max-w-sm space-y-5">
-            {[
-              {
-                icon: PatientsIcon,
-                title: 'A complete patient picture',
-                description: 'One record, throughout every visit.',
-              },
-              {
-                icon: StethoscopeIcon,
-                title: 'A more connected care team',
-                description: 'From reception to consultation and beyond.',
-              },
-              {
-                icon: LabIcon,
-                title: 'Clarity at every step',
-                description: 'Keep results, prescriptions, and billing in view.',
-              },
-            ].map(({ icon: Icon, title, description }) => (
-              <div key={title} className="flex items-center gap-4">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-[#c9c6ff]">
-                  <Icon className="size-5" />
+        </div>
+
+        <div className="relative py-10">
+          <h1 className="max-w-lg text-[40px] leading-[1.14] font-medium tracking-[-0.04em] xl:text-[46px]">
+            {hospital ? (
+              <>
+                {hospital},
+                <br />
+                <span className="text-[#b8b5ff]">on one record.</span>
+              </>
+            ) : (
+              <>
+                One patient,
+                <br />
+                <span className="text-[#b8b5ff]">one record.</span>
+              </>
+            )}
+          </h1>
+          <p className="mt-5 max-w-[380px] text-[15px] leading-7 text-white/60">
+            From the front desk to the ward and back to the cash desk — the same
+            record, wherever the patient is.
+          </p>
+
+          <ul className="mt-11 grid max-w-md grid-cols-2 gap-x-6 gap-y-3.5">
+            {AREAS.map(({ icon: Icon, label }) => (
+              <li key={label} className="flex items-center gap-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/6 text-[#c9c6ff]">
+                  <Icon className="size-4" />
                 </span>
-                <div>
-                  <p className="text-[13px] font-medium">{title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-white/55">{description}</p>
-                </div>
-              </div>
+                <span className="text-[13px] text-white/80">{label}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
-        <div className="relative flex items-center gap-2 text-[11px] text-white/55">
-          <ShieldIcon className="size-4" /> Healthier people. Brighter tomorrows.
-        </div>
+
+        <p className="relative flex items-center gap-2 text-[11px] text-white/50">
+          <ShieldIcon className="size-4" /> Authorised hospital personnel only
+        </p>
       </div>
 
-      {/* Form */}
       <div className="flex items-center justify-center px-6 py-12 sm:px-10">
         <div className="w-full max-w-[400px]">
-          <div className="mb-8 lg:hidden">
-            <BrandLogo className="w-[192px]" />
+          <div className="mb-9 lg:hidden">
+            <BrandLogo className="w-[186px]" />
           </div>
 
-          <div className="mb-9">
-            <p className="mb-3 text-[11px] font-semibold tracking-[0.14em] text-accent uppercase">
-              {hospital} · Staff portal
-            </p>
-            <h2 className="text-[34px] leading-tight font-semibold tracking-[-0.04em] text-ink">
-              Welcome back
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-              Sign in to your account to continue to your workspace.
-            </p>
-          </div>
+          <h2 className="text-[30px] leading-tight font-semibold tracking-[-0.035em] text-ink">
+            Sign in
+          </h2>
+          <p className="mt-2 mb-8 text-sm text-ink-muted">
+            {hospital ? `${hospital} · staff portal` : 'Staff portal'}
+          </p>
 
           <form onSubmit={submit} noValidate>
             <div className="mb-5">
@@ -159,7 +179,7 @@ export default function LoginPage() {
                 autoComplete="username"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="Enter your work email"
+                placeholder="you@hospital.test"
                 className={inputClass}
               />
             </div>
@@ -176,7 +196,6 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter your password"
                   className={`${inputClass} pr-11`}
                 />
                 <button
@@ -206,62 +225,53 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="mt-2 flex h-12 w-full items-center justify-center gap-3 rounded-xl bg-accent text-sm font-semibold text-white shadow-card transition-colors hover:bg-accent-hover disabled:opacity-60"
+              className="mt-1 flex h-12 w-full items-center justify-center rounded-xl bg-accent text-sm font-semibold text-white shadow-card transition-colors hover:bg-accent-hover disabled:opacity-60"
             >
-              {isSubmitting ? 'Signing in…' : 'Sign in to workspace'}
-              {!isSubmitting && <ArrowRightIcon className="size-4" />}
+              {isSubmitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
 
-          <p className="mt-5 text-xs leading-5 text-ink-muted">
-            Accounts lock after 10 failed attempts in 15 minutes. Ask an administrator to unlock
-            yours.
+          <p className="mt-4 text-xs leading-5 text-ink-faint">
+            Ten failed attempts in fifteen minutes locks the account. An
+            administrator can unlock it.
           </p>
 
-          {/* Served by the API only when the deployment is in demo mode, so a
-              live hospital's sign-in page cannot render working credentials. */}
           {meta?.demo_mode && meta.sample_logins.length > 0 && (
-            <details className="mt-8 rounded-xl border border-border bg-surface-muted/60 p-4">
-              <summary className="text-[13px] font-semibold text-ink">
-                Explore a demo account
-                <span className="ml-2 rounded-md bg-abnormal-muted px-2 py-1 text-[10px] font-medium text-abnormal">
-                  Demo
+            <div className="mt-8 rounded-xl border border-border bg-surface-muted/60 p-4">
+              <label htmlFor="demo-role" className="text-[12.5px] font-semibold text-ink">
+                Demo account
+                <span className="ml-2 rounded bg-abnormal-muted px-1.5 py-0.5 text-[10px] font-medium text-abnormal">
+                  Demo mode
                 </span>
-              </summary>
-              <p className="mt-3 mb-3 text-xs leading-5 text-ink-muted">
-                Choose a role to fill in the sign-in form and explore its workspace.
-              </p>
-              <div className="grid max-h-[250px] gap-2 overflow-y-auto pr-1">
+              </label>
+              <select
+                id="demo-role"
+                defaultValue=""
+                onChange={(event) => {
+                  const sample = meta.sample_logins.find(
+                    (entry) => entry.email === event.target.value,
+                  )
+                  if (!sample) return
+                  setEmail(sample.email)
+                  setPassword(sample.password)
+                  setError('')
+                }}
+                className="mt-2 h-11 w-full rounded-lg border border-border bg-surface px-3 text-[13px] text-ink"
+              >
+                <option value="">Choose a role to fill the form…</option>
                 {meta.sample_logins.map((sample) => (
-                  <button
-                    key={sample.email}
-                    type="button"
-                    onClick={() => fill(sample)}
-                    className="rounded-lg border border-border bg-surface px-3 py-2.5 text-left transition-colors hover:border-accent hover:bg-accent-muted"
-                  >
-                    <span className="flex items-baseline justify-between gap-2">
-                      <span className="text-[12px] font-bold text-ink">{sample.role}</span>
-                      <span className="text-[10.5px] text-ink-faint">
-                        {sample.facility ?? 'All facilities'}
-                      </span>
-                    </span>
-                    <span className="mt-0.5 block truncate text-[11.5px] text-ink-muted">
-                      {sample.email}
-                    </span>
-                  </button>
+                  <option key={sample.email} value={sample.email}>
+                    {sample.role}
+                    {sample.facility ? ` — ${sample.facility}` : ' — all facilities'}
+                  </option>
                 ))}
-              </div>
-              <p className="mt-2.5 border-t border-border pt-2 text-[11px] text-ink-faint">
-                Password for every demo account:{' '}
-                <span className="font-mono text-[10.5px] text-ink-muted">
-                  {meta.sample_logins[0].password}
-                </span>
+              </select>
+              <p className="mt-2 text-[11px] leading-5 text-ink-faint">
+                Fills the email and password above, then press Sign in. Each role
+                sees only its own work.
               </p>
-            </details>
+            </div>
           )}
-          <p className="mt-8 flex items-center justify-center gap-2 text-[11px] text-ink-faint">
-            <ShieldIcon className="size-3.5" /> Authorized hospital personnel only
-          </p>
         </div>
       </div>
     </div>

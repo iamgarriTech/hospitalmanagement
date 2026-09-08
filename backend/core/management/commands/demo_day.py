@@ -12,16 +12,21 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import User
 from billing.models import (
-    CashierSession, Invoice, Payment, PaymentMethod, charge, open_invoice_for,
+    CashierSession,
+    Invoice,
+    Payment,
+    PaymentMethod,
+    charge,
+    open_invoice_for,
 )
 from clinical.models import Diagnosis, Encounter, EncounterVersion, VitalSigns
-from django.core.exceptions import ValidationError
 from facilities.models import Clinic, Facility
 from imaging.models import ImagingOrder, ImagingOrderItem
 from inpatient.models import FluidBalanceEntry
@@ -29,7 +34,12 @@ from laboratory.models import LabOrder, LabOrderItem, LabTest
 from laboratory.results import enter_results, verify_results
 from patients.models import Patient, PatientAllergy, PatientChronicCondition
 from pharmacy.models import (
-    Medication, Prescription, PrescriptionItem, StockBatch, Dispense, take_from_batch,
+    Dispense,
+    Medication,
+    Prescription,
+    PrescriptionItem,
+    StockBatch,
+    take_from_batch,
 )
 from visits.models import Visit
 
@@ -148,9 +158,7 @@ class Command(BaseCommand):
             cashier=staff["cashier"], facility=facility, opening_float=Decimal("5000.00")
         )
 
-        counts = {stage: 0 for stage in
-                  ["waiting", "with_doctor", "in_lab", "critical", "at_pharmacy",
-                   "at_cash_desk", "completed", "admitted", "discharged"]}
+        counts = dict.fromkeys(["waiting", "with_doctor", "in_lab", "critical", "at_pharmacy", "at_cash_desk", "completed", "admitted", "discharged"], 0)
 
         total = options["patients"]
         for index in range(total):
@@ -300,11 +308,13 @@ class Command(BaseCommand):
         Returns False when no bed is free, leaving the request pending — which
         is a state a ward list has to be able to show, not an error.
         """
-        from imaging.models import ImagingProcedure
-        from inpatient.models import Admission, AdmissionRequest, Bed, Ward
+        from inpatient.models import Admission, AdmissionRequest
         from inpatient.services import (
-            admit, charge_bed_nights, discharge, plan_discharge, record_administration,
-            record_observation_escalations, schedule_doses, transfer,
+            admit,
+            charge_bed_nights,
+            discharge,
+            plan_discharge,
+            transfer,
         )
 
         # One admission in six is unwell enough for intensive care, so that
@@ -427,7 +437,7 @@ class Command(BaseCommand):
     def _observe_on_the_ward(self, admission, staff, ward, started):
         """Four rounds a day, with a few breaching the ward's thresholds."""
         from inpatient.models import NursingAssessment, NursingNote
-        from inpatient.services import fluid_balance, record_observation_escalations
+        from inpatient.services import record_observation_escalations
 
         hours = int((timezone.now() - started).total_seconds() // 3600)
         for hour in range(0, max(hours, 1), 6):

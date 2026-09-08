@@ -167,6 +167,9 @@ class FailedLoginAttempt(models.Model):
     class Meta:
         ordering = ["-occurred_at"]
 
+    def __str__(self):
+        return f"{self.email} from {self.ip_address or 'unknown'} at {self.occurred_at:%Y-%m-%d %H:%M}"
+
     @classmethod
     def is_locked(cls, email):
         window_start = timezone.now() - timedelta(minutes=settings.FAILED_LOGIN_WINDOW)

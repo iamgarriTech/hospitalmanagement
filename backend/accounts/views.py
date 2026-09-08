@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout
-from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers as drf_serializers
 from rest_framework import status
@@ -13,7 +13,6 @@ from audit.models import AuditEvent
 
 from .models import FailedLoginAttempt, RoleAssignment
 from .serializers import LoginSerializer, UserSerializer
-
 
 DETAIL_RESPONSE = inline_serializer(
     name="Detail", fields={"detail": drf_serializers.CharField()}

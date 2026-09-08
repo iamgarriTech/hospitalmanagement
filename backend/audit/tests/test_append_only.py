@@ -16,7 +16,7 @@ def make_events(actor, count=3):
 def test_chain_links_each_event_to_the_previous_one(editor):
     events = make_events(editor)
     assert events[0].prev_hash == GENESIS_HASH
-    for earlier, later in zip(events, events[1:]):
+    for earlier, later in zip(events, events[1:], strict=False):
         assert later.prev_hash == earlier.row_hash
     ok, problems = AuditEvent.verify_chain()
     assert ok, problems

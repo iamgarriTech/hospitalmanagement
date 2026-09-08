@@ -6,12 +6,12 @@ and that changing configuration is a security-relevant event rather than a
 quiet edit.
 """
 import pytest
+from conftest import PASSWORD, perm
 from django.contrib.auth.models import Permission
 from django.urls import reverse
 
 from accounts.models import Role, RoleAssignment, User
 from audit.models import AuditEvent
-from conftest import PASSWORD, perm
 from patients.models import NumberSequence
 
 

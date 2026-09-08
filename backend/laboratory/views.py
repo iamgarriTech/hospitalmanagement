@@ -9,7 +9,6 @@ from audit.models import AuditEvent
 from billing.models import charge
 from core.episodes import episode_owner, facility_from_request
 from core.permissions import FacilityScopedMixin, HasPermission
-from visits.models import Visit
 
 from .models import (
     CriticalResultAcknowledgement,
@@ -31,7 +30,6 @@ from .serializers import (
     LabResultSerializer,
     LabTestCategorySerializer,
     LabTestSerializer,
-    SpecimenSerializer,
     VerifySerializer,
 )
 

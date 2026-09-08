@@ -8,8 +8,8 @@ with before/after values.
 from django.contrib.auth.models import Permission
 from django.db import models
 from drf_spectacular.utils import extend_schema
+from rest_framework import serializers, viewsets
 from rest_framework import status as http
-from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -18,7 +18,6 @@ from core.permissions import HasPermission
 
 from .models import Role, RoleAssignment, User
 from .serializers import UserSerializer
-from rest_framework import serializers
 
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -186,6 +185,7 @@ class RoleViewSet(viewsets.ModelViewSet):
 class StaffViewSet(viewsets.ReadOnlyModelViewSet):
     """Staff accounts and what they hold."""
 
+    queryset = User.objects.none()
     serializer_class = UserSerializer
     permission_classes = [HasPermission]
     required_permissions = {

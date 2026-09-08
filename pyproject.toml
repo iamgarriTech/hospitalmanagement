@@ -1,0 +1,52 @@
+# Ruff, configured to catch defects rather than to enforce a house style.
+#
+# The frontend has gated CI on eslint since Phase 1; the backend had no linter
+# at all, which is how an inline `__import__` and a dozen dead imports survived
+# review. This closes that asymmetry.
+#
+# The rule selection is deliberate. Ruff's default set fights Django — it wants
+# `typing.ClassVar` on every viewset attribute, which is 600 findings of noise
+# and no defects. What is selected here either finds real errors or keeps
+# imports in the order the codebase already uses.
+[tool.ruff]
+line-length = 95
+target-version = "py314"
+extend-exclude = ["**/migrations/*"]
+
+[tool.ruff.lint]
+select = [
+    "F",    # pyflakes: undefined names, unused imports, f-string mistakes
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "I",    # import order, which this codebase already follows by hand
+    "B",    # bugbear: mutable defaults, loop-variable binding, assert False
+    "C4",   # comprehension misuse
+    "DJ",   # Django-specific: missing on_delete, __str__, verbose_name
+]
+ignore = [
+    # Long lines in a docstring are usually a sentence that reads better whole.
+    "E501",
+    # `raise ... from err` inside a DRF view converts a database error into a
+    # response; chaining the original into the traceback adds nothing a reader
+    # of the response can use.
+    "B904",
+    # Method ordering. A style preference, and enforcing it now would reorder
+    # methods in four working models for no functional gain. DJ008 (a model
+    # with no __str__) is kept, because that one is read in audit payloads.
+    "DJ012",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test files assert on things they do not otherwise use, and fixtures are
+# imported for their side effect of existing.
+"**/tests/*" = ["F811"]
+# Settings is one module of assignments driven by env; import order there
+# follows the order things have to be defined in.
+"backend/config/settings.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "accounts", "audit", "billing", "clinical", "config", "core", "facilities",
+    "imaging", "inpatient", "insurance", "laboratory", "notifications",
+    "patients", "pharmacy", "visits",
+]

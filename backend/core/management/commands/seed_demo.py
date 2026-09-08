@@ -22,7 +22,11 @@ from inpatient.models import Bed, EscalationThreshold, Room, Ward
 from laboratory.models import LabTest, LabTestCategory, LabTestParameter, ReferenceRange
 from patients.models import NumberSequence
 from pharmacy.models import (
-    ContraindicationRule, DoseRange, Medication, MedicationCategory, StockBatch,
+    ContraindicationRule,
+    DoseRange,
+    Medication,
+    MedicationCategory,
+    StockBatch,
     StockMovement,
 )
 
@@ -39,6 +43,7 @@ SEQUENCES = [
     ("refund_reference", "REF", True, 6),
     ("admission_number", "ADM", True, 6),
     ("imaging_order_number", "IMG", True, 6),
+    ("claim_number", "CLM", True, 6),
 ]
 
 FACILITIES = [

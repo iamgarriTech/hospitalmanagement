@@ -14,7 +14,7 @@ from typing import Protocol
 
 from core.formatting import trim_decimal
 
-from .models import DoseRange, PrescriptionItem
+from .models import PrescriptionItem
 
 ALLERGY = "allergy"
 DUPLICATE_THERAPY = "duplicate_therapy"

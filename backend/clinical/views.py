@@ -11,7 +11,6 @@ from audit.models import AuditEvent
 from billing.models import Service, charge
 from core.episodes import episode_owner, facility_from_request
 from core.permissions import HasPermission
-from visits.models import Visit
 
 from .models import Diagnosis, Encounter, EncounterVersion, VitalSigns
 from .serializers import (

@@ -5,6 +5,15 @@ from rest_framework.routers import DefaultRouter
 from accounts.config_views import PermissionViewSet, RoleViewSet, StaffViewSet
 from accounts.views import CsrfView, LoginView, LogoutView, MetaView, MeView
 from audit.views import AuditEventViewSet
+from billing.views import (
+    CashierSessionViewSet,
+    InvoiceViewSet,
+    PaymentMethodViewSet,
+    PaymentViewSet,
+    ServiceCategoryViewSet,
+    ServiceViewSet,
+)
+from clinical.views import EncounterViewSet, VitalSignsViewSet
 from core.config_views import (
     ClinicViewSet,
     DepartmentViewSet,
@@ -34,16 +43,6 @@ from inpatient.views import (
     ScheduledDoseViewSet,
     WardViewSet,
 )
-from patients.views import PatientViewSet
-from billing.views import (
-    CashierSessionViewSet,
-    InvoiceViewSet,
-    PaymentMethodViewSet,
-    PaymentViewSet,
-    ServiceCategoryViewSet,
-    ServiceViewSet,
-)
-from clinical.views import EncounterViewSet, VitalSignsViewSet
 from laboratory.views import (
     LabOrderItemViewSet,
     LabOrderViewSet,
@@ -52,6 +51,7 @@ from laboratory.views import (
     LabTestViewSet,
 )
 from notifications.views import NotificationViewSet
+from patients.views import PatientViewSet
 from pharmacy.views import (
     MedicationCategoryViewSet,
     MedicationViewSet,

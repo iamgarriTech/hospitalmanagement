@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "imaging",
     "pharmacy",
     "billing",
+    "insurance",
     # One app for inpatient care: the admission, its bed, the drug chart and the
     # nursing record are one workflow, and splitting them across four apps buys
     # a circular import and four migration graphs to keep in step.
@@ -66,6 +67,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Sends the X-Frame-Options header. `X_FRAME_OPTIONS = "DENY"` below does
+    # nothing without it — the setting was configured and the header was never
+    # sent, which is the worst of both: it looks handled and is not.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequestContextMiddleware",
 ]
 
@@ -165,6 +170,10 @@ SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
 if not DEBUG:
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    # Off by default and deliberately opt-in: preloading is close to
+    # irreversible — a hospital that later needs a plain-HTTP subdomain cannot
+    # simply undo it — so the deployment decides rather than the code.
+    SECURE_HSTS_PRELOAD = env.bool("SECURE_HSTS_PRELOAD", default=False)
 
 REST_FRAMEWORK = {
     # Session auth only. No JWT, no token in browser storage.

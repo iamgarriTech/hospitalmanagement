@@ -10,7 +10,6 @@ decision on it.
 from datetime import timedelta
 
 import pytest
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.urls import reverse
 from django.utils import timezone
@@ -18,9 +17,8 @@ from django.utils import timezone
 from audit.models import AuditEvent
 from billing.models import Invoice
 from imaging.models import ImagingOrder, ImagingOrderItem, ImagingProcedure, ImagingReport
-from imaging.reporting import perform, unacknowledged_critical_findings, write_report
+from imaging.reporting import perform, unacknowledged_critical_findings
 from notifications.models import Notification
-
 
 # --- the catalogue ------------------------------------------------------------
 

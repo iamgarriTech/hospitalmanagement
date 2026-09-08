@@ -6,8 +6,7 @@ them would mean a doctor cannot ask for a bed without knowing whether one is
 free, which is not how a hospital works.
 """
 from django.conf import settings
-from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import models
 from django.utils import timezone
 
 from patients.models import NumberSequence

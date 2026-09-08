@@ -12,9 +12,8 @@ from django.utils import timezone
 
 from audit.models import AuditEvent
 from billing.models import charge
-from pharmacy.models import PrescriptionItem, StockBatch, take_from_batch
-
 from core.formatting import trim_decimal
+from pharmacy.models import PrescriptionItem, StockBatch, take_from_batch
 
 from ..models import MedicationAdministration, ScheduledDose, times_for
 
@@ -283,6 +282,29 @@ def _commit_administration(*, scheduled_dose, state, actor, administered_at, dos
     return administration, True
 
 
+# The words for a cell with no recorded outcome. Sent to the client so that
+# "overdue" means the same thing on the chart, on the ward board and in a
+# report — a second copy of these in the browser would be the one that drifts.
+PENDING_LABELS = {
+    "scheduled": "Not yet due",
+    "due": "Due",
+    "overdue": "Overdue",
+}
+
+
+def _cell_label(status, outcome, dose):
+    """What one chart cell says, in words.
+
+    Words as well as colour, always: a ward monitor is not colour-calibrated,
+    some staff have colour-vision deficiency, and drug charts get printed.
+    """
+    if outcome is not None:
+        return outcome.get_state_display()
+    if dose.is_cancelled:
+        return "Discontinued"
+    return PENDING_LABELS.get(status, status)
+
+
 def chart(*, admission, days=7, now=None, overdue_after_minutes=60):
     """The MAR as a chart: a row per medication, a column per due time.
 
@@ -315,17 +337,12 @@ def chart(*, admission, days=7, now=None, overdue_after_minutes=60):
             "cells": {},
         })
         outcome = dose.outcome
+        status = dose.status(overdue_after_minutes=overdue_after_minutes, now=moment)
         row["cells"][dose.due_at.isoformat()] = {
             "dose_id": dose.pk,
             "due_at": dose.due_at,
-            "status": dose.status(overdue_after_minutes=overdue_after_minutes, now=moment),
-            "state_label": (
-                outcome.get_state_display() if outcome
-                else dict(
-                    scheduled="Not yet due", due="Due", overdue="Overdue"
-                )[dose.status(overdue_after_minutes=overdue_after_minutes, now=moment)]
-                if not dose.is_cancelled else "Discontinued"
-            ),
+            "status": status,
+            "state_label": _cell_label(status, outcome, dose),
             "by": outcome.administered_by.full_name if outcome else None,
             "at": outcome.administered_at if outcome else None,
             "minutes_late": outcome.minutes_late if outcome else None,

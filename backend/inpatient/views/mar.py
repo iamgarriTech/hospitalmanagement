@@ -6,7 +6,8 @@ from a flat list of doses would put the definition of "overdue" in two places.
 """
 from django.core.exceptions import ValidationError
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status as http, viewsets
+from rest_framework import status as http
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -20,6 +21,7 @@ from ..serializers import (
     RecordAdministrationSerializer,
     ScheduledDoseSerializer,
 )
+
 # Aliased: the viewset actions below are also called `chart` and
 # `discontinue`, and a method calling a same-named global reads like recursion.
 from ..services import bedside_warnings, overdue_doses, record_administration, schedule_doses
@@ -124,6 +126,7 @@ class ScheduledDoseViewSet(FacilityScopedMixin, viewsets.ReadOnlyModelViewSet):
         """AC-91. A dose with no outcome is indistinguishable from a dose nobody
         gave, so it has to be surfaced rather than sit quietly on a chart."""
         from facilities.models import Facility
+
         from ..models import Ward
 
         ward = Ward.objects.filter(pk=request.query_params.get("ward")).first()

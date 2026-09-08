@@ -103,8 +103,8 @@ def main():
              "type; they are not fifty requests in the same millisecond.",
     )
     args = parser.parse_args()
-    common = dict(base=args.base, email=args.email, password=args.password,
-                  processes=args.processes, rounds=args.rounds)
+    common = {"base": args.base, "email": args.email, "password": args.password,
+              "processes": args.processes, "rounds": args.rounds}
 
     board_p95, _, board_ok = measure(
         "AC-115 — ward board, 40 beds, full complement",

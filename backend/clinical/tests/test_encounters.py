@@ -31,7 +31,6 @@ def test_amending_a_finalised_record_creates_a_version_and_keeps_the_old_one(
     as_doctor, finalised_encounter
 ):
     """AC-20."""
-    detail = reverse("encounter-detail", args=[finalised_encounter["id"]])
     response = as_doctor.post(
         reverse("encounter-amend", args=[finalised_encounter["id"]]),
         {"clinical_notes": "Revised: malaria confirmed on RDT",

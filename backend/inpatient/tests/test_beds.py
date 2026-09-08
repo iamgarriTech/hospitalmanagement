@@ -13,9 +13,8 @@ from django.db import IntegrityError, connections, transaction
 from django.db.backends.postgresql.psycopg_any import DateTimeTZRange
 from django.utils import timezone
 
-from inpatient.models import Admission
+from inpatient.models import Admission, Bed, BedOccupancy, Room, Ward
 from patients.models import Patient
-from inpatient.models import Bed, BedOccupancy, Room, Ward
 
 
 @pytest.mark.django_db

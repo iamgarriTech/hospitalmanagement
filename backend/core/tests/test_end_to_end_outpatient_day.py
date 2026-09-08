@@ -24,8 +24,7 @@ from django.urls import reverse
 from audit.models import AuditEvent
 from billing.models import Invoice
 from laboratory.models import LabOrderItem
-from patients.models import Patient
-from pharmacy.models import PrescriptionItem, StockBatch
+from pharmacy.models import StockBatch
 from visits.models import Visit
 
 

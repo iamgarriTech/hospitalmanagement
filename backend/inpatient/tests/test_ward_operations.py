@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from audit.models import AuditEvent
 from inpatient.models import Bed, EscalationThreshold, ScheduledDose
-from inpatient.snapshot import render, snapshot_root, ward_snapshot_data
+from inpatient.snapshot import render, ward_snapshot_data
 from patients.models import PatientAllergy
 
 
@@ -216,8 +216,9 @@ def test_the_snapshot_is_a_self_contained_file_that_needs_no_server(
     different question from the one the connectivity decision asked.
     """
     settings.WARD_SNAPSHOT_ROOT = str(tmp_path)
-    from django.core.management import call_command
     from io import StringIO
+
+    from django.core.management import call_command
 
     out = StringIO()
     call_command("ward_snapshot", "--ward", busy_ward.code, stdout=out)

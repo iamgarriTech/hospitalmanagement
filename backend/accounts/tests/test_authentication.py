@@ -1,11 +1,11 @@
 """AC-6 (lockout), plus the login half of the Phase 0 gate."""
 import pytest
+from conftest import PASSWORD
 from django.conf import settings
 from django.urls import reverse
 
 from accounts.models import FailedLoginAttempt
 from audit.models import AuditEvent
-from conftest import PASSWORD
 
 
 @pytest.mark.django_db

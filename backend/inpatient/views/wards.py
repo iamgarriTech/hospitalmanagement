@@ -7,8 +7,9 @@ screen that shows a patient in the wrong bed for a moment.
 """
 from django.core.exceptions import ValidationError
 from django.db.models import Prefetch
-from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import status as http, viewsets
+from drf_spectacular.utils import extend_schema
+from rest_framework import status as http
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -16,7 +17,7 @@ from audit.models import AuditEvent
 from core.permissions import FacilityScopedMixin, HasPermission
 from facilities.models import Facility
 
-from ..models import Bed, BedOccupancy, Escalation, EscalationThreshold, Room, Ward
+from ..models import Bed, BedOccupancy, EscalationThreshold, Room, Ward
 from ..serializers import (
     BedOccupancySerializer,
     BedSerializer,

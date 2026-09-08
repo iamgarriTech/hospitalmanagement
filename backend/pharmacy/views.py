@@ -13,7 +13,6 @@ from core.episodes import episode_owner, facility_from_request
 from core.formatting import trim_decimal
 from core.permissions import HasPermission
 from patients.models import Patient
-from visits.models import Visit
 
 from . import safety
 from .models import (

@@ -11,10 +11,10 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from audit.models import AuditEvent
-from billing.models import Invoice, charge, open_invoice_for
+from billing.models import Invoice, charge
 from core.formatting import trim_decimal
 
-from ..models import Admission, AdmissionRequest, Bed, BedOccupancy, BedTransfer
+from ..models import Admission, AdmissionRequest, BedOccupancy, BedTransfer
 
 # A night is charged where the patient occupied the bed across midnight. The
 # admission night counts, the discharge day does not. Stated on every invoice
