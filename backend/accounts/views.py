@@ -80,8 +80,8 @@ class MetaView(APIView):
             # Inpatient
             "Ward Doctor", "Ward Nurse", "Ward Manager",
             # Back office
-            "Cashier", "Accountant", "Medical Records Officer",
-            "Hospital Administrator",
+            "Cashier", "Accountant", "Insurance Officer",
+            "Medical Records Officer", "Hospital Administrator",
         ]
         seen = {}
         for assignment in (

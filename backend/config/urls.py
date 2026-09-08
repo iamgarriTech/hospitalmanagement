@@ -43,6 +43,17 @@ from inpatient.views import (
     ScheduledDoseViewSet,
     WardViewSet,
 )
+from insurance.views import (
+    ChargeCoverageViewSet,
+    ClaimBatchViewSet,
+    ClaimLineViewSet,
+    CoverageRuleViewSet,
+    InsuranceProviderViewSet,
+    PatientPolicyViewSet,
+    PlanViewSet,
+    PreauthorisationViewSet,
+    ProviderPaymentViewSet,
+)
 from laboratory.views import (
     LabOrderItemViewSet,
     LabOrderViewSet,
@@ -117,6 +128,18 @@ router.register("escalations", EscalationViewSet, basename="escalation")
 router.register("scheduled-doses", ScheduledDoseViewSet, basename="scheduleddose")
 router.register("administrations", MedicationAdministrationViewSet,
                 basename="medicationadministration")
+router.register("insurance-providers", InsuranceProviderViewSet,
+                basename="insuranceprovider")
+router.register("insurance-plans", PlanViewSet, basename="plan")
+router.register("coverage-rules", CoverageRuleViewSet, basename="coveragerule")
+router.register("patient-policies", PatientPolicyViewSet, basename="patientpolicy")
+router.register("preauthorisations", PreauthorisationViewSet,
+                basename="preauthorisation")
+router.register("charge-coverage", ChargeCoverageViewSet, basename="chargecoverage")
+router.register("claims", ClaimBatchViewSet, basename="claimbatch")
+router.register("claim-lines", ClaimLineViewSet, basename="claimline")
+router.register("provider-payments", ProviderPaymentViewSet,
+                basename="providerpayment")
 
 urlpatterns = [
     path("api/meta/", MetaView.as_view(), name="meta"),

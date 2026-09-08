@@ -292,6 +292,26 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      to: '/insurance',
+      end: false,
+      label: 'Insurance',
+      icon: ShieldIcon,
+      show: canAny('insurance.view_claimbatch', 'insurance.view_patientpolicy'),
+      children: [
+        {
+          to: '/insurance',
+          label: 'Insurance desk',
+          show: can('insurance.view_claimbatch'),
+        },
+        { to: '/insurance/claims', label: 'Claims', show: can('insurance.view_claimbatch') },
+        {
+          to: '/insurance/providers',
+          label: 'Providers & plans',
+          show: can('insurance.view_insuranceprovider'),
+        },
+      ],
+    },
+    {
       to: '/settings',
       end: false,
       label: 'Configuration',

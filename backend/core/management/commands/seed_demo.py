@@ -131,6 +131,12 @@ ROLES = {
             "visits.view_visit", "clinical.view_encounter", "clinical.view_vitalsigns",
             "laboratory.view_laborder", "laboratory.*_labtest*",
             "pharmacy.view_medication", "pharmacy.*_medication*", "billing.*",
+            # Configures who covers patients here and what each plan pays for.
+            "insurance.view_*", "insurance.add_insuranceprovider",
+            "insurance.change_insuranceprovider", "insurance.manage_coverage",
+            "insurance.add_plan", "insurance.change_plan",
+            "insurance.add_coveragerule", "insurance.change_coveragerule",
+            "insurance.delete_coveragerule",
             # The log is a privacy surface in its own right, so it is granted
             # explicitly rather than swept in by a wildcard.
             "audit.view_auditevent",
@@ -222,6 +228,27 @@ ROLES = {
         "permissions": [
             "facilities.view_facility", "patients.view_patient", "visits.view_visit",
             "billing.*",
+            # Writing off money a scheme did not pay is the same class of
+            # decision as approving a discount, so it sits here rather than on
+            # the billing desk that raised the claim.
+            "insurance.view_*", "insurance.record_claim_outcome",
+            "insurance.add_providerpayment", "insurance.write_off_claim_shortfall",
+        ],
+    },
+    # --- insurance ------------------------------------------------------------
+    "Insurance Officer": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient", "visits.view_visit",
+            "clinical.view_encounter",
+            "billing.view_invoice", "billing.view_service", "billing.view_payment",
+            "billing.view_paymentmethod",
+            "insurance.view_*",
+            "insurance.add_patientpolicy", "insurance.change_patientpolicy",
+            "insurance.verify_eligibility", "insurance.request_preauthorisation",
+            "insurance.add_claimbatch", "insurance.submit_claim",
+            "insurance.record_claim_outcome", "insurance.add_providerpayment",
+            # Deliberately not write_off_claim_shortfall: the desk that raises a
+            # claim does not decide to stop chasing it.
         ],
     },
     # --- inpatient ------------------------------------------------------------
@@ -328,6 +355,7 @@ STAFF = [
     ("pharmacist@demo.test", "Yemi Adeyemi", "Pharmacist", "MAIN"),
     ("cashier@demo.test", "Blessing Uche", "Cashier", "MAIN"),
     ("accounts@demo.test", "Femi Balogun", "Accountant", "MAIN"),
+    ("insurance@demo.test", "Tolu Odukoya", "Insurance Officer", "MAIN"),
     ("wardnurse@demo.test", "Amaka Nwachukwu", "Ward Nurse", "MAIN"),
     ("warddoctor@demo.test", "Kolawole Ajayi", "Ward Doctor", "MAIN"),
     ("wardmanager@demo.test", "Ngozi Okafor", "Ward Manager", "MAIN"),

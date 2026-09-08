@@ -705,6 +705,12 @@ def accountant(db, facility_a):
         "patients.view_patient", "visits.view_visit",
         "billing.view_invoice", "billing.change_invoice", "billing.approve_discount",
         "billing.void_invoice", "billing.issue_refund",
+        # Writing off what a scheme did not pay is the same class of decision as
+        # approving a discount, so it sits with the accountant rather than the
+        # billing desk that raised the claim.
+        "insurance.view_claimbatch", "insurance.view_providerpayment",
+        "insurance.add_providerpayment", "insurance.record_claim_outcome",
+        "insurance.write_off_claim_shortfall",
         "billing.view_payment", "billing.add_payment",
         "billing.view_cashiersession", "billing.add_cashiersession",
         "billing.change_cashiersession", "billing.reconcile_cashiersession",

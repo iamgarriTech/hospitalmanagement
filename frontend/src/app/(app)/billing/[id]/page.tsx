@@ -14,6 +14,7 @@ import {
   type Receipt, fetchReceipt, newIdempotencyKey, useApplyDiscount, useCashierSessions,
   useFinaliseInvoice, useInvoice, usePaymentMethods, useRecordPayment, useRefund,
 } from '@/lib/billing'
+import { useInvoiceSplit } from '@/lib/insurance'
 import { dateAndTime, invoiceLabel, invoiceTone, money } from '@/lib/workflow'
 
 /**
@@ -39,6 +40,9 @@ export default function InvoicePage() {
   const discount = useApplyDiscount()
   const pay = useRecordPayment()
   const refund = useRefund()
+  // How the bill divides between the patient and their scheme. Absent for a
+  // self-paying patient, and for a caller who may not read scheme money.
+  const split = useInvoiceSplit(Number.isFinite(invoiceId) ? invoiceId : null)
 
   const [error, setError] = useState<string | null>(null)
   const [receipt, setReceipt] = useState<Receipt | null>(null)
@@ -80,6 +84,18 @@ export default function InvoicePage() {
   }
 
   const balance = Number(record.balance)
+
+  /* AC-127. `balance` is the whole invoice, which for an insured patient
+     includes the scheme's money. What the cashier collects is the patient's
+     share less what they have already paid — asking a patient for the HMO's
+     portion is the failure this screen exists to prevent. A 403 or an absent
+     split means no coverage was resolved, and then the two are the same. */
+  const schemeShare = split.data ? Number(split.data.scheme_share) : 0
+  const patientShare = split.data ? Number(split.data.patient_share) : Number(record.total)
+  const patientOwes = split.data
+    ? Math.max(patientShare - Number(record.amount_paid) + Number(record.amount_refunded), 0)
+    : balance
+  const insured = schemeShare > 0
 
   return (
     <PageShell>
@@ -200,6 +216,41 @@ export default function InvoicePage() {
               </dd>
             </dl>
 
+            {insured && (
+              <div className="mx-5 mb-5 rounded-lg border border-accent/30 bg-accent-muted/40 p-4">
+                <p className="text-[11px] font-bold tracking-[0.08em] text-accent uppercase">
+                  Covered bill
+                </p>
+                <dl className="mt-2.5 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-[13px]">
+                  <dt className="text-ink-muted">Scheme pays</dt>
+                  <dd className="text-right text-ink">{money(schemeShare)}</dd>
+                  <dt className="text-ink-muted">Patient&apos;s share</dt>
+                  <dd className="text-right text-ink">{money(patientShare)}</dd>
+                  <dt className="border-t border-accent/20 pt-1.5 font-semibold text-ink">
+                    Collect from the patient
+                  </dt>
+                  <dd
+                    className={`border-t border-accent/20 pt-1.5 text-right text-[16px] font-bold ${
+                      patientOwes > 0 ? 'text-abnormal' : 'text-normal'
+                    }`}
+                  >
+                    {money(patientOwes)}
+                  </dd>
+                </dl>
+                {Number(split.data?.unresolved ?? 0) > 0 && (
+                  <p className="mt-2.5 text-[11.5px] font-medium text-abnormal">
+                    {money(split.data?.unresolved)} on this bill has no coverage
+                    decision, so it counts as the patient&apos;s until somebody
+                    resolves it.
+                  </p>
+                )}
+                <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+                  The scheme is billed by claim, not at this desk. Ask the patient
+                  for their share only.
+                </p>
+              </div>
+            )}
+
             {record.status === 'draft' && !record.is_frozen && can('billing.change_invoice') && (
               <div className="border-t border-border p-5">
                 <p className="mb-3 text-[12.5px] text-ink-muted">
@@ -278,10 +329,11 @@ export default function InvoicePage() {
         </div>
 
         <div className="grid gap-5">
-          {balance > 0 && !record.is_frozen && can('billing.add_payment') && (
+          {patientOwes > 0 && !record.is_frozen && can('billing.add_payment') && (
             <TakePayment
               invoiceId={record.id}
-              balance={balance}
+              balance={patientOwes}
+              insured={insured}
               methods={methods.data ?? []}
               hasSession={Boolean(openSession)}
               pay={pay}
@@ -310,6 +362,7 @@ export default function InvoicePage() {
 function TakePayment({
   invoiceId,
   balance,
+  insured = false,
   methods,
   hasSession,
   pay,
@@ -317,7 +370,10 @@ function TakePayment({
   onPaid,
 }: {
   invoiceId: number
+  /* What to collect. For an insured patient this is their share, not the
+     invoice balance — the scheme is billed by claim, not at this desk. */
   balance: number
+  insured?: boolean
   methods: { id: number; name: string; requires_reference: boolean }[]
   hasSession: boolean
   pay: ReturnType<typeof useRecordPayment>
@@ -362,7 +418,14 @@ function TakePayment({
 
   return (
     <Panel>
-      <PanelHeader title="Take payment" hint={`${money(balance)} outstanding`} />
+      <PanelHeader
+        title="Take payment"
+        hint={
+          insured
+            ? `${money(balance)} — the patient's share. The scheme is billed separately.`
+            : `${money(balance)} outstanding`
+        }
+      />
       {!hasSession ? (
         <div className="p-5">
           <p className="text-[12.5px] leading-relaxed text-abnormal">
