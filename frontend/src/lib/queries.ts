@@ -362,7 +362,9 @@ export type LabOrderItemRow = {
 export type LabOrderRow = {
   id: number
   order_number: string
-  visit: number
+  /** One or the other: an inpatient order on day nine has no attendance. */
+  visit: number | null
+  admission: number | null
   patient: number
   patient_name: string
   hospital_number: string

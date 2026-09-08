@@ -134,11 +134,28 @@ class PrescriptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Prescription
-        fields = ["id", "prescription_number", "visit", "encounter", "patient",
-                  "patient_name", "hospital_number", "facility", "prescribed_by",
-                  "prescribed_by_email", "prescribed_at", "status", "notes", "items"]
+        fields = ["id", "prescription_number", "visit", "admission", "encounter",
+                  "patient", "patient_name", "hospital_number", "facility",
+                  "prescribed_by", "prescribed_by_email", "prescribed_at", "status",
+                  "notes", "is_discharge_medication", "items"]
         read_only_fields = ["id", "prescription_number", "patient", "facility",
                             "prescribed_by", "prescribed_at", "status"]
+
+    def validate(self, attrs):
+        """One episode or the other, on create.
+
+        A record filed against neither belongs to no episode of care and would
+        appear on nobody's list. Only on create, though: an update never resends
+        the episode — it is already set and read-only — and requiring it here
+        made every edit to a draft fail.
+        """
+        if self.instance is None and (
+            attrs.get("visit") is None and attrs.get("admission") is None
+        ):
+            raise serializers.ValidationError(
+                "This belongs to an attendance or to an admission. Give one."
+            )
+        return attrs
 
 
 class ScreenSerializer(serializers.Serializer):

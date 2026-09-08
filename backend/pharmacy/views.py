@@ -9,6 +9,8 @@ from rest_framework.response import Response
 
 from audit.models import AuditEvent
 from billing.models import charge
+from core.episodes import episode_owner, facility_from_request
+from core.formatting import trim_decimal
 from core.permissions import HasPermission
 from patients.models import Patient
 from visits.models import Visit
@@ -186,8 +188,7 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
 
     def facility_for_permission(self, request):
         if self.action == "create":
-            visit = Visit.objects.filter(pk=request.data.get("visit")).first()
-            return visit.facility if visit else None
+            return facility_from_request(request)
         return None
 
     @extend_schema(summary="Which safety checks are running, and which are not")
@@ -230,7 +231,9 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
-        visit = data.pop("visit")
+        visit = data.pop("visit", None)
+        admission = data.pop("admission", None)
+        patient, facility = episode_owner(visit=visit, admission=admission)
         items = data.pop("items")
 
         acknowledged = str(request.data.get("acknowledge_warnings", "")).lower() in {
@@ -242,7 +245,7 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         blocking = []
         for entry in items:
             warnings = safety.screen(
-                patient=visit.patient,
+                patient=patient,
                 medication=entry["medication"],
                 dose=entry.get("dose"),
                 route=entry.get("route"),
@@ -268,14 +271,14 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
             )
         if blocking and acknowledged:
             if not request.user.has_permission(
-                "pharmacy.override_safety_warning", visit.facility
+                "pharmacy.override_safety_warning", facility
             ):
                 AuditEvent.record(
                     action="prescription.override_denied",
                     actor=request.user,
                     outcome=AuditEvent.DENIED,
-                    patient=visit.patient,
-                    facility=visit.facility,
+                    patient=patient,
+                    facility=facility,
                     after={"warnings": [w.kind for _, w in blocking]},
                     request=request,
                 )
@@ -293,9 +296,11 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             prescription = Prescription.objects.create(
                 visit=visit,
+                admission=admission,
                 encounter=data.get("encounter"),
-                patient=visit.patient,
-                facility=visit.facility,
+                patient=patient,
+                facility=facility,
+                is_discharge_medication=data.get("is_discharge_medication", False),
                 prescribed_by=request.user,
                 notes=data.get("notes", ""),
             )
@@ -320,7 +325,7 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
             after={
                 "prescription_number": prescription.prescription_number,
                 "items": [
-                    f"{item.medication.generic_name} {item.dose:g}{item.dose_unit} "
+                    f"{item.medication.generic_name} {trim_decimal(item.dose)}{item.dose_unit} "
                     f"× {item.frequency_per_day}/day × {item.duration_days}d"
                     for item in prescription.items.all()
                 ],

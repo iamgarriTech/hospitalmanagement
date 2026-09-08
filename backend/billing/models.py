@@ -175,7 +175,7 @@ class Invoice(models.Model):
     # started it: bed nights, ward medication and inpatient investigations
     # accrue for weeks after the outpatient visit closed.
     admission = models.ForeignKey(
-        "admissions.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        "inpatient.Admission", on_delete=models.PROTECT, null=True, blank=True,
         related_name="invoices",
     )
     facility = models.ForeignKey(
@@ -396,9 +396,29 @@ class Refund(models.Model):
 
 
 @transaction.atomic
-def open_invoice_for(visit, *, created_by=None):
-    """The visit's draft invoice, created on first need."""
-    invoice = Invoice.objects.filter(visit=visit, status=Invoice.DRAFT).first()
+def open_invoice_for(visit=None, *, admission=None, created_by=None):
+    """The draft invoice for a visit or an admission, created on first need.
+
+    An admission gets its own. A stay accrues bed nights, ward medication and
+    investigations for weeks after the outpatient attendance that started it
+    closed — and that attendance's bill may well have been paid and reconciled,
+    at which point it is frozen and cannot take another charge.
+    """
+    if admission is not None:
+        invoice = Invoice.objects.filter(
+            admission=admission, status=Invoice.DRAFT
+        ).first()
+        if invoice is not None:
+            return invoice
+        return Invoice.objects.create(
+            patient=admission.patient, admission=admission, visit=admission.visit,
+            facility=admission.facility,
+        )
+    if visit is None:
+        raise ValidationError("A charge needs either a visit or an admission.")
+    invoice = Invoice.objects.filter(
+        visit=visit, admission__isnull=True, status=Invoice.DRAFT
+    ).first()
     if invoice is not None:
         return invoice
     return Invoice.objects.create(
@@ -406,16 +426,52 @@ def open_invoice_for(visit, *, created_by=None):
     )
 
 
+def _already_charged(*, source_type, source_id, visit=None, admission=None):
+    """Whether this clinical event has been billed on any live invoice.
+
+    A voided invoice is excluded on purpose: voiding an invoice is how a
+    mis-billed stay is corrected, and the charges on it have to be raisable
+    again afterwards or the correction loses them.
+    """
+    invoices = (
+        Invoice.objects.filter(admission=admission)
+        if admission is not None
+        else Invoice.objects.filter(visit=visit, admission__isnull=True)
+    )
+    return InvoiceItem.objects.filter(
+        invoice__in=invoices.exclude(status=Invoice.VOID),
+        source_type=source_type,
+        source_id=str(source_id),
+    ).first()
+
+
 @transaction.atomic
-def charge(*, visit, service_code, description, source_type, source_id, quantity=1,
-           unit_price=None, actor=None):
+def charge(*, service_code, description, source_type, source_id, visit=None,
+           admission=None, quantity=1, unit_price=None, actor=None):
     """Add a charge for a clinical event, at most once.
 
-    Called by the module that performed the act — the laboratory when an order is
-    placed, the pharmacy when medication is issued — so every line can be traced back
-    to something that actually happened.
+    Called by the module that performed the act — the laboratory when an order
+    is placed, the pharmacy when medication is issued, the ward when a night is
+    slept — so every line can be traced back to something that actually
+    happened.
+
+    "At most once" is per *stay or attendance*, not per invoice. The unique
+    constraint on `(invoice, source_type, source_id)` stops a retry landing
+    twice on one invoice, but it says nothing across two: a long admission is
+    billed in stages, and once the first invoice is finalised the next charge
+    opens a fresh draft. Keyed only on the invoice, every bed night already
+    settled would be charged again on that new draft — the patient pays twice
+    for the same night, and the ward has no way to tell which line is the
+    duplicate. So the search below spans every invoice for the target.
     """
-    invoice = open_invoice_for(visit)
+    existing = _already_charged(
+        source_type=source_type, source_id=source_id, visit=visit, admission=admission
+    )
+    if existing is not None:
+        return existing, False
+
+    invoice = open_invoice_for(visit, admission=admission)
+    facility = invoice.facility
     if invoice.status != Invoice.DRAFT:
         raise ValidationError(
             f"{invoice.invoice_number} is {invoice.status} and cannot take new charges."

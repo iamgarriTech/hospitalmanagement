@@ -232,8 +232,9 @@ def _check_dose(patient, medication, dose, route, frequency_per_day):
                 kind=DOSE_RANGE,
                 severity=WARNING,
                 detail=(
-                    f"{dose:g} {reference.dose_unit} is below the usual single dose of "
-                    f"{reference.min_single_dose:g}–{reference.max_single_dose:g} "
+                    f"{trim_decimal(dose)} {reference.dose_unit} is below the usual single dose of "
+                    f"{trim_decimal(reference.min_single_dose)}–"
+                    f"{trim_decimal(reference.max_single_dose)} "
                     f"{reference.dose_unit}."
                 ),
                 requires_reason=True,
@@ -247,8 +248,8 @@ def _check_dose(patient, medication, dose, route, frequency_per_day):
                 kind=DOSE_RANGE,
                 severity=CRITICAL,
                 detail=(
-                    f"{dose:g} {reference.dose_unit} exceeds the maximum single dose of "
-                    f"{reference.max_single_dose:g} {reference.dose_unit}."
+                    f"{trim_decimal(dose)} {reference.dose_unit} exceeds the maximum single dose of "
+                    f"{trim_decimal(reference.max_single_dose)} {reference.dose_unit}."
                 ),
                 requires_reason=True,
                 evidence={"max": trim_decimal(reference.max_single_dose)},
@@ -263,9 +264,9 @@ def _check_dose(patient, medication, dose, route, frequency_per_day):
                     kind=DOSE_RANGE,
                     severity=CRITICAL,
                     detail=(
-                        f"{dose:g} {reference.dose_unit} × {frequency_per_day}/day is "
-                        f"{daily:g} {reference.dose_unit}, above the maximum daily dose "
-                        f"of {reference.max_daily_dose:g} {reference.dose_unit}."
+                        f"{trim_decimal(dose)} {reference.dose_unit} × {frequency_per_day}/day is "
+                        f"{trim_decimal(daily)} {reference.dose_unit}, above the maximum daily dose "
+                        f"of {trim_decimal(reference.max_daily_dose)} {reference.dose_unit}."
                     ),
                     requires_reason=True,
                     evidence={"daily": trim_decimal(daily),

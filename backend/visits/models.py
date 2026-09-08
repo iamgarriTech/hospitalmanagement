@@ -27,6 +27,11 @@ class Visit(models.Model):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+    # Admission ends the attendance: the stay takes over, and the patient must
+    # not also be sitting in the outpatient queue. Terminal here, because
+    # anything further about them belongs to the admission.
+    ADMITTED = "admitted"
+
     STATUS_CHOICES = [
         (SCHEDULED, "Scheduled"),
         (WAITING, "Waiting"),
@@ -35,6 +40,7 @@ class Visit(models.Model):
         (SENT_FOR_INVESTIGATION, "Sent for investigation"),
         (SENT_TO_PHARMACY, "Sent to pharmacy"),
         (SENT_FOR_BILLING, "Sent for billing"),
+        (ADMITTED, "Admitted"),
         (COMPLETED, "Completed"),
         (CANCELLED, "Cancelled"),
     ]
@@ -44,16 +50,21 @@ class Visit(models.Model):
     # it is followed by a new one.
     TRANSITIONS = {
         SCHEDULED: {WAITING, CANCELLED},
-        WAITING: {CALLED, CANCELLED},
-        CALLED: {IN_CONSULTATION, WAITING, CANCELLED},
+        # A patient can deteriorate in the waiting room, so admission is
+        # reachable from anywhere the patient is still in the building.
+        WAITING: {CALLED, ADMITTED, CANCELLED},
+        CALLED: {IN_CONSULTATION, WAITING, ADMITTED, CANCELLED},
         IN_CONSULTATION: {
-            SENT_FOR_INVESTIGATION, SENT_TO_PHARMACY, SENT_FOR_BILLING, COMPLETED, WAITING,
+            SENT_FOR_INVESTIGATION, SENT_TO_PHARMACY, SENT_FOR_BILLING, ADMITTED,
+            COMPLETED, WAITING,
         },
         SENT_FOR_INVESTIGATION: {
-            IN_CONSULTATION, WAITING, SENT_TO_PHARMACY, SENT_FOR_BILLING, COMPLETED,
+            IN_CONSULTATION, WAITING, SENT_TO_PHARMACY, SENT_FOR_BILLING, ADMITTED,
+            COMPLETED,
         },
-        SENT_TO_PHARMACY: {IN_CONSULTATION, SENT_FOR_BILLING, COMPLETED},
-        SENT_FOR_BILLING: {IN_CONSULTATION, SENT_TO_PHARMACY, COMPLETED},
+        SENT_TO_PHARMACY: {IN_CONSULTATION, SENT_FOR_BILLING, ADMITTED, COMPLETED},
+        SENT_FOR_BILLING: {IN_CONSULTATION, SENT_TO_PHARMACY, ADMITTED, COMPLETED},
+        ADMITTED: set(),
         COMPLETED: set(),
         CANCELLED: set(),
     }
@@ -171,7 +182,7 @@ class Visit(models.Model):
         if status == self.IN_CONSULTATION and locked.consultation_started_at is None:
             locked.consultation_started_at = now
             touched.append("consultation_started_at")
-        if status in (self.COMPLETED, self.CANCELLED):
+        if status in (self.COMPLETED, self.CANCELLED, self.ADMITTED):
             locked.closed_at = now
             touched.append("closed_at")
         locked.save(update_fields=touched)

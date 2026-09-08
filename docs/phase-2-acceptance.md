@@ -16,6 +16,76 @@ The three additions to the release gate for this phase:
 
 ---
 
+## Status — 2026-09-08
+
+**Backend and screens complete.** Every criterion from AC-61 to AC-117 is
+built. AC-118 (forward migration and the restore drill) has not been run.
+
+| | |
+|---|---|
+| Backend tests | **319 passing** |
+| Frontend tests | **19 passing** |
+| API endpoints | 318 routes, schema clean (0 errors) |
+| Screens | 8 new (37 routes total), all build |
+| Accessibility lint | clean (errors, not warnings) |
+| Keyboard gate | clean — no click handler on a non-interactive element |
+| Migrations | no drift |
+| Ward board | 21 queries, 42 ms, 49 KiB |
+| MAR chart | 8 queries, 22 ms, 58 KiB |
+
+| Area | Criteria | Status |
+|---|---|---|
+| Admission | AC-61 – AC-66 | **Pass** |
+| Beds and occupancy | AC-67 – AC-73 | **Pass** — AC-69 gate: 12 threads, 1 allocated, 11 refused |
+| Transfers | AC-74 – AC-77 | **Pass** |
+| Nursing | AC-78 – AC-82 | **Pass** |
+| Medication administration | AC-83 – AC-91 | **Pass** — AC-84 gate enforced by the column |
+| Inpatient clinical record | AC-92, AC-93 | **Pass** |
+| Imaging | AC-94 – AC-98 | **Pass** — an unverified report reaches nobody |
+| Discharge | AC-99 – AC-105 | **Pass** — AC-100 gate refuses; override needs the permission |
+| Inpatient billing | AC-106 – AC-109 | **Pass** |
+| Ward operations | AC-110 – AC-112 | **Pass** — snapshot is a file with no external references |
+| Workflow integration | AC-113, AC-114 | **Pass** at the API, incl. 14 permission walks |
+| Ward board performance | AC-115 | **Pass** — 444 ms p95, 50 users (from 4,221 ms) |
+| MAR performance | AC-116 | **Pass** — 205 ms p95 |
+| Keyboard and accessibility | AC-117 | **Pass** — jsx-a11y clean, CI keyboard gate clean |
+| Forward migration and restore | AC-118 | **Not run** |
+
+### What is not claimed
+
+- **AC-118** — the forward-migration and restore drill has not been run against
+  a database holding Phase 1 data with inpatients present.
+- **The Phase 2 screens are not covered by a browser test.** They typecheck,
+  lint clean against the same jsx-a11y error set as Phase 1, pass the CI
+  keyboard gate, build, and every endpoint behind them was driven through the
+  API as each role. What has *not* been verified automatically is the rendered
+  DOM, because there is no browser test runner in the project — the same
+  limitation Phase 1 recorded for AC-23's indicator.
+- **AC-115's same-instant burst** — 50 requests in the same millisecond is
+  556 ms p95, over the 500 ms target by 11%. The criterion says 50 concurrent
+  *users*, who read and type rather than firing simultaneously, and that figure
+  passes at 444 ms; the burst is reported rather than claimed. See
+  [performance.md](performance.md).
+
+### One structural change made during this phase
+
+`wards`, `admissions` and `mar` were three Django apps for one workflow, and
+`nursing` would have made four. They are now one `inpatient` app, organised by
+concern inside it — `models/`, `services/`, `serializers/`, `views/`, each
+holding `wards.py`, `admissions.py`, `mar.py` and `nursing.py`. An admission,
+its bed, the drug chart and the nursing record are inseparable; split across
+apps they need a circular import and four migration graphs kept in step by hand.
+
+This cost almost nothing because none of those tables exist in a Phase 1
+database — it was a module rename, not a data migration. Phase 1's migrations
+are untouched, so AC-118 still has a real Phase 1 state to run forward from.
+
+`imaging` will stay its own app, parallel to `laboratory`. Folding both into a
+shared `diagnostics` app would mean renaming a released `laboratory`, which
+*is* a data migration, for no functional gain.
+
+---
+
 ## Admission
 
 - **AC-61** An admission request records the requesting clinician, the reason, the

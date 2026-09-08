@@ -31,12 +31,23 @@ class Encounter(models.Model):
     CONSULTATION = "consultation"
     REVIEW = "review"
     TRIAGE = "triage"
+    DAILY_REVIEW = "daily_review"
     TYPE_CHOICES = [
         (CONSULTATION, "Consultation"), (REVIEW, "Review"), (TRIAGE, "Triage"),
+        (DAILY_REVIEW, "Inpatient daily review"),
     ]
 
+    # A record belongs to an attendance or to an admission. An inpatient stay
+    # outlives the visit that started it — a daily review on day nine has
+    # nothing to do with that morning's outpatient queue — and a direct
+    # admission has no visit at all.
     visit = models.ForeignKey(
-        "visits.Visit", on_delete=models.PROTECT, related_name="encounters"
+        "visits.Visit", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="encounters",
+    )
+    admission = models.ForeignKey(
+        "inpatient.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="encounters",
     )
     patient = models.ForeignKey(
         "patients.Patient", on_delete=models.PROTECT, related_name="encounters"
@@ -59,6 +70,12 @@ class Encounter(models.Model):
     class Meta:
         ordering = ["-started_at"]
         indexes = [models.Index(fields=["patient", "-started_at"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(visit__isnull=False) | models.Q(admission__isnull=False),
+                name="encounter_belongs_to_a_visit_or_an_admission",
+            )
+        ]
         permissions = [
             ("finalise_encounter", "Can finalise a consultation record"),
             ("amend_encounter", "Can amend a finalised consultation record"),
@@ -264,6 +281,16 @@ class VitalSigns(models.Model):
     )
     visit = models.ForeignKey(
         "visits.Visit",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="vital_signs",
+    )
+    # Observations taken on the ward belong to the stay. The patient FK above is
+    # what makes the trend one series: an inpatient temperature sits on the same
+    # chart as the one taken in clinic rather than starting a new one.
+    admission = models.ForeignKey(
+        "inpatient.Admission",
         on_delete=models.PROTECT,
         null=True,
         blank=True,

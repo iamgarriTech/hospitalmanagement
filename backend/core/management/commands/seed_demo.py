@@ -17,6 +17,8 @@ from django.utils import timezone
 from accounts.models import Role, RoleAssignment, User
 from billing.models import PaymentMethod, Service, ServiceCategory, ServicePrice
 from facilities.models import Clinic, Department, Facility, Organization
+from imaging.models import ImagingModality, ImagingProcedure
+from inpatient.models import Bed, EscalationThreshold, Room, Ward
 from laboratory.models import LabTest, LabTestCategory, LabTestParameter, ReferenceRange
 from patients.models import NumberSequence
 from pharmacy.models import (
@@ -35,6 +37,8 @@ SEQUENCES = [
     ("invoice_number", "INV", True, 6),
     ("receipt_number", "RCP", True, 6),
     ("refund_reference", "REF", True, 6),
+    ("admission_number", "ADM", True, 6),
+    ("imaging_order_number", "IMG", True, 6),
 ]
 
 FACILITIES = [
@@ -47,8 +51,66 @@ DEPARTMENTS = [
     ("Internal Medicine", "MED", ["Consultant Clinic"]),
     ("Paediatrics", "PAED", ["Children's Clinic"]),
     ("Laboratory", "LAB", []),
+    ("Radiology", "RAD", []),
     ("Pharmacy", "PHA", []),
     ("Billing", "BIL", []),
+    ("Inpatient", "WARD", []),
+]
+
+# Wards, and the beds in them. Four beds to a room, which is how a Nigerian
+# general ward is laid out.
+WARDS = [
+    ("Male Medical Ward", "MMW", "male", "BED-GEN", ["R1", "R2", "R3"], 4),
+    ("Female Medical Ward", "FMW", "female", "BED-GEN", ["R1", "R2", "R3"], 4),
+    ("Children's Ward", "CW", "paediatric", "BED-GEN", ["R1", "R2"], 4),
+    ("Intensive Care Unit", "ICU", "intensive", "BED-ICU", ["B1"], 4),
+]
+
+# When an observation on a ward has to be escalated. Per ward, because the same
+# figure means different things in intensive care and on a general ward.
+ESCALATION_THRESHOLDS = {
+    "default": [
+        ("systolic_bp", 90, 180, "Tell the registrar and repeat in 15 minutes"),
+        ("pulse_bpm", 50, 120, "Repeat manually and tell the nurse in charge"),
+        ("respiratory_rate", 10, 24, "Sit the patient up, check saturations, call the doctor"),
+        ("oxygen_saturation", 92, None, "Start oxygen and call the doctor"),
+        ("temperature_c", None, "38.5", "Take blood cultures before antibiotics"),
+    ],
+    # Tighter bounds in intensive care: the same reading there means something
+    # different, and a single hospital-wide threshold would either cry wolf or
+    # stay silent.
+    "ICU": [
+        ("systolic_bp", 100, 160, "Tell the intensivist now"),
+        ("pulse_bpm", 55, 110, "Tell the intensivist now"),
+        ("oxygen_saturation", 94, None, "Increase FiO2 and tell the intensivist"),
+        ("temperature_c", "35.5", "38.0", "Active warming or cooling per protocol"),
+    ],
+}
+
+# The imaging catalogue: modality, body part, preparation and price.
+MODALITIES = [
+    ("X-ray", "CR", 1),
+    ("Ultrasound", "US", 2),
+    ("CT", "CT", 3),
+]
+
+IMAGING_PROCEDURES = [
+    ("CR", "Chest X-ray, PA", "CXR", "Chest", "IMG-CXR", 10, False, "", "",
+     "LOINC", "36643-5"),
+    ("CR", "Abdominal X-ray, supine", "AXR", "Abdomen", "IMG-AXR", 10, False, "", "",
+     "LOINC", "74212-6"),
+    ("CR", "Pelvis X-ray, AP", "XR-PELV", "Pelvis", "IMG-XRP", 10, False,
+     "Remove metal from pockets.", "", "", ""),
+    ("US", "Abdominal ultrasound", "USG-ABD", "Abdomen", "IMG-USG", 20, False,
+     "Nil by mouth for 4 hours. Full bladder.", "", "LOINC", "24851-3"),
+    ("US", "Obstetric ultrasound", "USG-OBS", "Pelvis", "IMG-USO", 20, False,
+     "Full bladder.", "", "", ""),
+    ("CT", "CT head, non-contrast", "CT-HEAD", "Head", "IMG-CTH", 15, False,
+     "Remove hairpins and earrings.", "Pregnancy", "LOINC", "24725-9"),
+    ("CT", "CT abdomen and pelvis with contrast", "CTAP", "Abdomen and pelvis",
+     "IMG-CTAP", 30, True,
+     "Nil by mouth for 6 hours. Cannulate before arrival.",
+     "Renal impairment, contrast allergy, pregnancy", "", ""),
 ]
 
 # Permission sets per role. Everything is a database row; nothing branches on a name.
@@ -157,6 +219,96 @@ ROLES = {
             "billing.*",
         ],
     },
+    # --- inpatient ------------------------------------------------------------
+    "Ward Nurse": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "clinical.view_encounter", "clinical.view_vitalsigns",
+            "clinical.add_vitalsigns", "clinical.change_vitalsigns",
+            "inpatient.view_ward", "inpatient.view_room", "inpatient.view_bed",
+            "inpatient.manage_beds", "inpatient.view_bedoccupancy",
+            "inpatient.view_escalationthreshold",
+            "inpatient.view_admission",
+            "inpatient.view_nursingassessment", "inpatient.add_nursingassessment",
+            "inpatient.view_nursingnote", "inpatient.add_nursingnote",
+            "inpatient.view_fluidbalanceentry", "inpatient.add_fluidbalanceentry",
+            "inpatient.view_escalation",
+            # Gives medication; cannot prescribe or stop it.
+            "inpatient.view_scheduleddose",
+            "inpatient.view_medicationadministration",
+            "inpatient.add_medicationadministration",
+            "pharmacy.view_prescription", "pharmacy.view_medication",
+            "pharmacy.view_stockbatch",
+            "imaging.view_imagingorder",
+        ],
+    },
+    "Ward Doctor": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "visits.view_visit", "visits.move_queue",
+            "clinical.*",
+            "inpatient.view_ward", "inpatient.view_room", "inpatient.view_bed",
+            "inpatient.view_bedoccupancy", "inpatient.view_escalationthreshold",
+            "inpatient.view_admissionrequest", "inpatient.add_admissionrequest",
+            "inpatient.decide_admissionrequest",
+            "inpatient.view_admission", "inpatient.admit_patient",
+            "inpatient.transfer_patient", "inpatient.plan_discharge",
+            "inpatient.discharge_patient",
+            "inpatient.view_nursingassessment", "inpatient.view_nursingnote",
+            "inpatient.add_nursingnote", "inpatient.view_fluidbalanceentry",
+            "inpatient.view_escalation", "inpatient.escalate_observation",
+            "inpatient.view_scheduleddose", "inpatient.add_scheduleddose",
+            "inpatient.change_scheduleddose",
+            "inpatient.view_medicationadministration",
+            "laboratory.view_laborder", "laboratory.add_laborder",
+            "laboratory.view_labtest", "laboratory.acknowledge_critical_result",
+            "imaging.view_imagingorder", "imaging.add_imagingorder",
+            "imaging.view_imagingprocedure", "imaging.view_imagingmodality",
+            "imaging.acknowledge_critical_finding",
+            "pharmacy.view_prescription", "pharmacy.add_prescription",
+            "pharmacy.view_medication", "pharmacy.view_stockbatch",
+            "billing.view_invoice",
+        ],
+    },
+    "Ward Manager": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "clinical.view_encounter", "clinical.view_vitalsigns",
+            "inpatient.*",
+            "laboratory.view_laborder", "imaging.view_imagingorder",
+            "pharmacy.view_prescription",
+            "billing.view_invoice",
+        ],
+    },
+    # --- radiology ------------------------------------------------------------
+    "Radiographer": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient", "visits.view_visit",
+            "imaging.view_imagingorder", "imaging.view_imagingprocedure",
+            "imaging.view_imagingmodality",
+            "imaging.schedule_imaging", "imaging.perform_imaging",
+            "imaging.change_imagingorderitem",
+            "inpatient.view_admission",
+        ],
+    },
+    "Radiologist": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient", "visits.view_visit",
+            "imaging.view_imagingorder", "imaging.view_imagingprocedure",
+            "imaging.view_imagingmodality", "imaging.perform_imaging",
+            "imaging.add_imagingreport", "imaging.verify_imagingreport",
+            "imaging.amend_imagingreport",
+            "inpatient.view_admission",
+        ],
+    },
+    "Imaging Registrar": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "imaging.view_imagingorder", "imaging.view_imagingprocedure",
+            # Writes reports; cannot release them. The separation AC-96 turns on.
+            "imaging.add_imagingreport",
+        ],
+    },
 }
 
 STAFF = [
@@ -171,6 +323,12 @@ STAFF = [
     ("pharmacist@demo.test", "Yemi Adeyemi", "Pharmacist", "MAIN"),
     ("cashier@demo.test", "Blessing Uche", "Cashier", "MAIN"),
     ("accounts@demo.test", "Femi Balogun", "Accountant", "MAIN"),
+    ("wardnurse@demo.test", "Amaka Nwachukwu", "Ward Nurse", "MAIN"),
+    ("warddoctor@demo.test", "Kolawole Ajayi", "Ward Doctor", "MAIN"),
+    ("wardmanager@demo.test", "Ngozi Okafor", "Ward Manager", "MAIN"),
+    ("radiographer@demo.test", "Yemisi Oladele", "Radiographer", "MAIN"),
+    ("radiologist@demo.test", "Tayo Bankole", "Radiologist", "MAIN"),
+    ("imgregistrar@demo.test", "Uchenna Obi", "Imaging Registrar", "MAIN"),
 ]
 
 SERVICES = [
@@ -188,6 +346,21 @@ SERVICES = [
     ("Procedures", 3, [
         ("Wound dressing", "PROC-DRESS", "3000.00"),
         ("Intramuscular injection", "PROC-IM", "1000.00"),
+    ]),
+    ("Radiology", 4, [
+        ("Chest X-ray", "IMG-CXR", "8000.00"),
+        ("Abdominal X-ray", "IMG-AXR", "8000.00"),
+        ("Pelvis X-ray", "IMG-XRP", "8000.00"),
+        ("Abdominal ultrasound", "IMG-USG", "12000.00"),
+        ("Obstetric ultrasound", "IMG-USO", "12000.00"),
+        ("CT head", "IMG-CTH", "65000.00"),
+        ("CT abdomen and pelvis with contrast", "IMG-CTAP", "95000.00"),
+    ]),
+    # Bed nights are billed through the ordinary service machinery, so a ward's
+    # rate is per facility and a change to it is audited like any other price.
+    ("Accommodation", 5, [
+        ("General ward bed night", "BED-GEN", "12000.00"),
+        ("Intensive care bed night", "BED-ICU", "85000.00"),
     ]),
 ]
 
@@ -334,10 +507,12 @@ class Command(BaseCommand):
             facilities[code] = facility
         main = facilities["MAIN"]
 
+        departments = {}
         for dept_name, dept_code, clinics in DEPARTMENTS:
             department, _ = Department.objects.get_or_create(
                 facility=main, code=dept_code, defaults={"name": dept_name}
             )
+            departments[dept_code] = department
             for clinic_name in clinics:
                 Clinic.objects.get_or_create(
                     department=department, code=clinic_name[:3].upper(),
@@ -345,6 +520,7 @@ class Command(BaseCommand):
                 )
 
         # Services and prices, per facility.
+        services = {}
         for category_name, order, entries in SERVICES:
             category, _ = ServiceCategory.objects.get_or_create(
                 name=category_name, defaults={"display_order": order}
@@ -353,6 +529,7 @@ class Command(BaseCommand):
                 service, _ = Service.objects.get_or_create(
                     code=code, defaults={"category": category, "name": name}
                 )
+                services[code] = service
                 for facility in facilities.values():
                     # The branch charges less than the main hospital.
                     price = Decimal(amount) * (
@@ -494,6 +671,66 @@ class Command(BaseCommand):
                 },
             )
 
+        # --- wards, rooms and beds -------------------------------------------
+        wards = {}
+        for ward_name, ward_code, ward_type, rate_code, room_codes, per_room in WARDS:
+            ward, _ = Ward.objects.update_or_create(
+                facility=facilities["MAIN"], code=ward_code,
+                defaults={
+                    "name": ward_name,
+                    "ward_type": ward_type,
+                    "department": departments.get("WARD"),
+                    "nightly_service": services.get(rate_code),
+                },
+            )
+            wards[ward_code] = ward
+            for room_code in room_codes:
+                room, _ = Room.objects.get_or_create(
+                    ward=ward, code=room_code,
+                    defaults={"name": f"Room {room_code}"},
+                )
+                for index in range(per_room):
+                    Bed.objects.get_or_create(
+                        room=room, code="ABCDEF"[index]
+                    )
+            for measurement, low, high, instruction in ESCALATION_THRESHOLDS.get(
+                ward_code, ESCALATION_THRESHOLDS["default"]
+            ):
+                EscalationThreshold.objects.update_or_create(
+                    ward=ward, measurement=measurement,
+                    defaults={
+                        "low": Decimal(str(low)) if low is not None else None,
+                        "high": Decimal(str(high)) if high is not None else None,
+                        "instruction": instruction,
+                    },
+                )
+
+        # --- imaging catalogue -----------------------------------------------
+        modalities = {}
+        for name, code, order in MODALITIES:
+            modality, _ = ImagingModality.objects.update_or_create(
+                code=code, defaults={"name": name, "display_order": order}
+            )
+            modalities[code] = modality
+
+        for (modality_code, name, short, body_part, service_code, minutes,
+             contrast, preparation, contraindications, system, code) in IMAGING_PROCEDURES:
+            ImagingProcedure.objects.update_or_create(
+                code_short=short,
+                defaults={
+                    "modality": modalities[modality_code],
+                    "name": name,
+                    "body_part": body_part,
+                    "service": services.get(service_code),
+                    "typical_minutes": minutes,
+                    "requires_contrast": contrast,
+                    "preparation_instructions": preparation,
+                    "contraindications": contraindications,
+                    "code_system": system,
+                    "code": code,
+                },
+            )
+
         roles = {}
         for role_name, spec in ROLES.items():
             role, _ = Role.objects.get_or_create(name=role_name)
@@ -519,8 +756,12 @@ class Command(BaseCommand):
             ("departments", Department.objects.count()),
             ("services", Service.objects.count()),
             ("laboratory tests", LabTest.objects.count()),
+            ("imaging procedures", ImagingProcedure.objects.count()),
             ("medications", Medication.objects.count()),
             ("stock batches", StockBatch.objects.count()),
+            ("wards", Ward.objects.count()),
+            ("beds", Bed.objects.count()),
+            ("escalation thresholds", EscalationThreshold.objects.count()),
             ("roles", Role.objects.count()),
             ("staff", User.objects.count()),
         ]:

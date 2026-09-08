@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from django.contrib.auth.models import Permission
 from rest_framework.test import APIClient
@@ -183,7 +185,8 @@ def patient(db, facility_a, hospital_numbers):
 
     return Patient.objects.create(
         given_name="Amina", family_name="Yusuf", sex="female",
-        date_of_birth="1991-04-17", phone_primary="08031234567", facility=facility_a,
+        date_of_birth=date(1991, 4, 17), phone_primary="08031234567",
+        facility=facility_a,
     )
 
 
@@ -213,6 +216,9 @@ def doctor(db, facility_a):
         "laboratory.add_laborder",
         "laboratory.view_labtest",
         "laboratory.acknowledge_critical_result",
+        "imaging.view_imagingorder", "imaging.add_imagingorder",
+        "imaging.view_imagingprocedure", "imaging.view_imagingmodality",
+        "imaging.acknowledge_critical_finding",
         "pharmacy.view_prescription",
         "pharmacy.add_prescription",
         "pharmacy.view_medication",
@@ -397,7 +403,7 @@ def female_patient(db, facility_a, hospital_numbers):
 
     return Patient.objects.create(
         given_name="Amina", family_name="Yusuf", sex="female",
-        date_of_birth="1991-04-17", facility=facility_a,
+        date_of_birth=date(1991, 4, 17), facility=facility_a,
     )
 
 
@@ -407,7 +413,7 @@ def male_patient(db, facility_a, hospital_numbers):
 
     return Patient.objects.create(
         given_name="Emeka", family_name="Obi", sex="male",
-        date_of_birth="1985-02-08", facility=facility_a,
+        date_of_birth=date(1985, 2, 8), facility=facility_a,
     )
 
 
@@ -652,12 +658,20 @@ def tariff(db, billing_numbers, facility_a):
     )
     ServicePrice.objects.create(service=fbc_service, facility=facility_a, amount="3500.00")
 
+    accommodation = ServiceCategory.objects.create(name="Accommodation", display_order=3)
+    bed_night = Service.objects.create(
+        category=accommodation, name="General ward bed night", code="BED-GEN"
+    )
+    ServicePrice.objects.create(
+        service=bed_night, facility=facility_a, amount="12000.00"
+    )
+
     cash = PaymentMethod.objects.create(name="Cash", code="CASH")
     transfer = PaymentMethod.objects.create(
         name="Bank transfer", code="TRANSFER", requires_reference=True
     )
-    return {"consult": consult, "fbc_service": fbc_service, "cash": cash,
-            "transfer": transfer}
+    return {"consult": consult, "fbc_service": fbc_service, "bed_night": bed_night,
+            "cash": cash, "transfer": transfer}
 
 
 @pytest.fixture
@@ -721,6 +735,24 @@ def cashier_session(as_cashier, facility_a, billing_numbers):
 
 
 @pytest.fixture
+def finalise_invoice(as_cashier):
+    """Freeze an invoice through the API, which is where the rule lives.
+
+    Called from tests rather than reaching into the model, so what is exercised
+    is the path a cashier actually takes.
+    """
+    from django.urls import reverse
+
+    def freeze(invoice):
+        response = as_cashier.post(reverse("invoice-finalise", args=[invoice.pk]))
+        assert response.status_code == 200, response.data
+        invoice.refresh_from_db()
+        return invoice
+
+    return freeze
+
+
+@pytest.fixture
 def billed_visit(as_doctor, open_visit, tariff):
     """A finalised consultation, which is what puts a charge on the visit's invoice."""
     from django.urls import reverse
@@ -736,3 +768,363 @@ def billed_visit(as_doctor, open_visit, tariff):
     from billing.models import Invoice
 
     return Invoice.objects.get(visit=open_visit)
+
+
+# --- imaging -----------------------------------------------------------------
+
+@pytest.fixture
+def imaging_numbers(db):
+    NumberSequence.objects.create(
+        key="imaging_order_number", prefix="IMG", include_year=True, width=6
+    )
+
+
+@pytest.fixture
+def imaging_catalogue(db, imaging_numbers, facility_a, tariff):
+    """A small but realistic catalogue.
+
+    A chest X-ray because it is the commonest request in a Nigerian hospital,
+    and a contrast CT because contrast, contraindications and preparation are
+    the fields a single "test name" column gets wrong.
+    """
+    from billing.models import Service, ServiceCategory, ServicePrice
+    from imaging.models import ImagingModality, ImagingProcedure
+
+    radiology = ServiceCategory.objects.create(name="Radiology", display_order=4)
+
+    xray = ImagingModality.objects.create(name="X-ray", code="CR", display_order=1)
+    ct = ImagingModality.objects.create(name="CT", code="CT", display_order=3)
+
+    cxr_service = Service.objects.create(
+        category=radiology, name="Chest X-ray", code="IMG-CXR"
+    )
+    ServicePrice.objects.create(
+        service=cxr_service, facility=facility_a, amount="8000.00"
+    )
+    cxr = ImagingProcedure.objects.create(
+        modality=xray, name="Chest X-ray, PA", code_short="CXR",
+        body_part="Chest", service=cxr_service, typical_minutes=10,
+        code_system="LOINC", code="36643-5", code_display="XR Chest PA",
+    )
+
+    ct_service = Service.objects.create(
+        category=radiology, name="CT abdomen with contrast", code="IMG-CTA"
+    )
+    ServicePrice.objects.create(
+        service=ct_service, facility=facility_a, amount="95000.00"
+    )
+    ct_abdomen = ImagingProcedure.objects.create(
+        modality=ct, name="CT abdomen and pelvis with contrast",
+        code_short="CTAP", body_part="Abdomen and pelvis", service=ct_service,
+        typical_minutes=30, requires_contrast=True,
+        preparation_instructions="Nil by mouth for 6 hours. Cannulate before arrival.",
+        contraindications="Renal impairment, contrast allergy, pregnancy",
+    )
+
+    ultrasound = ImagingModality.objects.create(
+        name="Ultrasound", code="US", display_order=2
+    )
+    usg = ImagingProcedure.objects.create(
+        modality=ultrasound, name="Abdominal ultrasound", code_short="USG-ABD",
+        body_part="Abdomen",
+        preparation_instructions="Full bladder. Nil by mouth for 4 hours.",
+    )
+
+    return {"xray": xray, "ct": ct, "ultrasound": ultrasound,
+            "cxr": cxr, "ct_abdomen": ct_abdomen, "usg": usg,
+            "radiology_category": radiology}
+
+
+@pytest.fixture
+def radiographer(db, facility_a):
+    """Schedules and performs examinations. Does not report them."""
+    user = User.objects.create_user("radiog@example.test", "Yemi Radiographer", PASSWORD)
+    role = _role(
+        "Radiographer",
+        "patients.view_patient", "visits.view_visit",
+        "imaging.view_imagingorder", "imaging.view_imagingprocedure",
+        "imaging.view_imagingmodality",
+        "imaging.schedule_imaging", "imaging.perform_imaging",
+        "imaging.change_imagingorderitem",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def radiologist(db, facility_a):
+    """Reports, verifies and amends."""
+    user = User.objects.create_user("radiol@example.test", "Tayo Radiologist", PASSWORD)
+    role = _role(
+        "Radiologist",
+        "patients.view_patient", "visits.view_visit",
+        "imaging.view_imagingorder", "imaging.view_imagingprocedure",
+        "imaging.add_imagingreport", "imaging.verify_imagingreport",
+        "imaging.amend_imagingreport",
+        "imaging.perform_imaging",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def imaging_registrar(db, facility_a):
+    """Writes reports but cannot sign them off — the separation AC-96 turns on."""
+    user = User.objects.create_user("imgreg@example.test", "Uche Registrar", PASSWORD)
+    role = _role(
+        "Imaging Registrar",
+        "patients.view_patient",
+        "imaging.view_imagingorder", "imaging.add_imagingreport",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_radiographer(radiographer):
+    return _client_for(radiographer)
+
+
+@pytest.fixture
+def as_radiologist(radiologist):
+    return _client_for(radiologist)
+
+
+@pytest.fixture
+def as_imaging_registrar(imaging_registrar):
+    return _client_for(imaging_registrar)
+
+
+@pytest.fixture
+def imaging_admin(db, facility_a):
+    """Maintains the catalogue."""
+    user = User.objects.create_user("imgadmin@example.test", "Bisi Admin", PASSWORD)
+    role = _role(
+        "Imaging Administrator",
+        "imaging.view_imagingmodality", "imaging.add_imagingmodality",
+        "imaging.change_imagingmodality",
+        "imaging.view_imagingprocedure", "imaging.add_imagingprocedure",
+        "imaging.change_imagingprocedure",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_imaging_admin(imaging_admin):
+    return _client_for(imaging_admin)
+
+
+@pytest.fixture
+def cxr_order(as_doctor, open_visit, imaging_catalogue, facility_a):
+    """A requested chest X-ray, not yet scheduled."""
+    from django.urls import reverse
+
+    response = as_doctor.post(
+        reverse("imagingorder-list"),
+        {"visit": open_visit.pk, "priority": "urgent",
+         "clinical_question": "Pneumothorax after central line insertion?",
+         "relevant_history": "Right subclavian line sited 30 minutes ago",
+         "procedures": [imaging_catalogue["cxr"].pk]},
+        format="json",
+    )
+    assert response.status_code == 201, response.data
+    return response.data
+
+
+# --- inpatient ---------------------------------------------------------------
+
+@pytest.fixture
+def inpatient_numbers(db):
+    NumberSequence.objects.create(
+        key="admission_number", prefix="ADM", include_year=True, width=6
+    )
+
+
+@pytest.fixture
+def ward(db, facility_a):
+    """A small ward: two rooms, four beds."""
+    from inpatient.models import Bed, Room, Ward
+
+    ward = Ward.objects.create(
+        facility=facility_a, name="Male Medical Ward", code="MMW",
+        ward_type=Ward.MALE,
+    )
+    for room_code in ("R1", "R2"):
+        room = Room.objects.create(ward=ward, name=f"Room {room_code}", code=room_code)
+        for bed_code in ("A", "B"):
+            Bed.objects.create(room=room, code=bed_code)
+    return ward
+
+
+@pytest.fixture
+def beds(ward):
+    from inpatient.models import Bed
+
+    return list(Bed.objects.filter(room__ward=ward).order_by("room__code", "code"))
+
+
+@pytest.fixture
+def ward_doctor(db, facility_a):
+    """Requests admissions, admits, transfers, plans and completes discharge."""
+    user = User.objects.create_user("ward@example.test", "Kola Ward", PASSWORD)
+    role = _role(
+        "Ward Doctor",
+        "patients.view_patient",
+        "visits.view_visit", "visits.move_queue",
+        "clinical.view_encounter", "clinical.add_encounter",
+        "clinical.change_encounter", "clinical.finalise_encounter",
+        "clinical.amend_encounter", "clinical.view_vitalsigns",
+        "inpatient.view_ward", "inpatient.view_bed", "inpatient.view_bedoccupancy",
+        "inpatient.view_admissionrequest", "inpatient.add_admissionrequest",
+        "inpatient.decide_admissionrequest",
+        "inpatient.view_admission", "inpatient.admit_patient",
+        "inpatient.transfer_patient", "inpatient.plan_discharge",
+        "inpatient.discharge_patient",
+        "inpatient.view_nursingassessment", "inpatient.view_nursingnote",
+        "inpatient.add_nursingnote", "inpatient.view_fluidbalanceentry",
+        "inpatient.view_escalation", "inpatient.escalate_observation",
+        "inpatient.view_scheduleddose", "inpatient.add_scheduleddose",
+        "inpatient.change_scheduleddose",
+        "inpatient.view_medicationadministration",
+        "pharmacy.view_prescription", "pharmacy.add_prescription",
+        "pharmacy.view_medication", "pharmacy.view_stockbatch",
+        # Orders bloods and reads the report; does not enter or sign results.
+        "laboratory.view_laborder", "laboratory.add_laborder",
+        "laboratory.view_labtest", "laboratory.acknowledge_critical_result",
+        "imaging.view_imagingorder", "imaging.add_imagingorder",
+        "imaging.view_imagingprocedure",
+        "imaging.acknowledge_critical_finding",
+        "billing.view_invoice",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def ward_nurse(db, facility_a):
+    """Records observations and gives medication; cannot admit or discharge."""
+    user = User.objects.create_user("wardnurse@example.test", "Amaka Nurse", PASSWORD)
+    role = _role(
+        "Ward Nurse",
+        "patients.view_patient",
+        "clinical.view_encounter", "clinical.view_vitalsigns",
+        "clinical.add_vitalsigns", "clinical.change_vitalsigns",
+        "inpatient.view_ward", "inpatient.view_bed", "inpatient.manage_beds",
+        "inpatient.view_bedoccupancy", "inpatient.view_admission",
+        "inpatient.view_nursingassessment", "inpatient.add_nursingassessment",
+        "inpatient.view_nursingnote", "inpatient.add_nursingnote",
+        "inpatient.view_fluidbalanceentry", "inpatient.add_fluidbalanceentry",
+        "inpatient.view_escalation",
+        "inpatient.view_escalationthreshold",
+        # Gives medication, and cannot prescribe or discontinue one.
+        "inpatient.view_scheduleddose",
+        "inpatient.view_medicationadministration",
+        "inpatient.add_medicationadministration",
+        "pharmacy.view_medication", "pharmacy.view_stockbatch",
+        "pharmacy.view_prescription",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def ward_manager(db, facility_a):
+    """Runs the ward. The only role that can discharge past an unsettled bill,
+    and doing so is recorded as an exception rather than as a discharge."""
+    user = User.objects.create_user("wardmgr@example.test", "Ngozi Manager", PASSWORD)
+    role = _role(
+        "Ward Manager",
+        "patients.view_patient",
+        "clinical.view_encounter", "clinical.view_vitalsigns",
+        "inpatient.view_ward", "inpatient.change_ward", "inpatient.view_bed",
+        "inpatient.manage_beds", "inpatient.view_bedoccupancy",
+        "inpatient.view_escalationthreshold", "inpatient.add_escalationthreshold",
+        "inpatient.change_escalationthreshold",
+        "inpatient.view_admissionrequest", "inpatient.decide_admissionrequest",
+        "inpatient.view_admission", "inpatient.admit_patient",
+        "inpatient.transfer_patient", "inpatient.plan_discharge",
+        "inpatient.discharge_patient", "inpatient.override_discharge_billing",
+        "inpatient.view_nursingassessment", "inpatient.view_nursingnote",
+        "inpatient.view_fluidbalanceentry",
+        "inpatient.view_escalation", "inpatient.escalate_observation",
+        "inpatient.view_scheduleddose", "inpatient.view_medicationadministration",
+        "billing.view_invoice",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_ward_manager(ward_manager):
+    return _client_for(ward_manager)
+
+
+@pytest.fixture
+def as_ward_doctor(ward_doctor):
+    return _client_for(ward_doctor)
+
+
+@pytest.fixture
+def as_ward_nurse(ward_nurse):
+    return _client_for(ward_nurse)
+
+
+@pytest.fixture
+def admission(db, patient, facility_a, ward, beds, ward_doctor, inpatient_numbers):
+    """An admitted patient in the first bed."""
+    from inpatient.models import Admission
+    from inpatient.models import BedOccupancy
+
+    record = Admission.objects.create(
+        patient=patient, facility=facility_a,
+        admission_reason="Uncontrolled hypertension",
+        admission_diagnosis="Hypertensive urgency",
+        responsible_consultant=ward_doctor, admitted_by=ward_doctor,
+    )
+    BedOccupancy.allocate(bed=beds[0], admission=record, actor=ward_doctor)
+    return record
+
+
+@pytest.fixture
+def inpatient_prescription(db, admission, formulary, ward_doctor):
+    """Amoxicillin three times a day for five days, on the ward."""
+    from pharmacy.models import Prescription, PrescriptionItem
+
+    prescription = Prescription.objects.create(
+        admission=admission, visit=None, patient=admission.patient,
+        facility=admission.facility, prescribed_by=ward_doctor,
+    )
+    item = PrescriptionItem.objects.create(
+        prescription=prescription, medication=formulary["amoxicillin"],
+        dose="500", dose_unit="mg", route="oral", frequency_per_day=3,
+        duration_days=5, quantity_prescribed=15, instructions="After food",
+    )
+    return item
+
+
+@pytest.fixture
+def drug_chart(inpatient_prescription, admission, ward_doctor):
+    """A scheduled course, ready to be given.
+
+    Anchored to the next midnight rather than to "now" so the chart is the same
+    fifteen doses whatever time of day the suite runs. Left on `now`, the count
+    depended on how many of today's rounds had already passed, and the test
+    failed only when run after the evening round — a test that fails by the
+    clock is worse than no test.
+    """
+    from datetime import datetime, time, timedelta
+
+    from django.utils import timezone
+
+    from inpatient.services import schedule_doses
+
+    tomorrow = (timezone.localtime() + timedelta(days=1)).date()
+    start = timezone.make_aware(
+        datetime.combine(tomorrow, time(hour=0, minute=1)),
+        timezone.get_current_timezone(),
+    )
+    return schedule_doses(
+        prescription_item=inpatient_prescription, admission=admission,
+        actor=ward_doctor, start=start,
+    )

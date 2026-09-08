@@ -28,3 +28,4 @@ def test_no_app_registers_an_admin_module():
         assert importlib.util.find_spec(f"{app}.admin") is None, (
             f"{app}/admin.py exists — admin registration must not creep back in"
         )
+

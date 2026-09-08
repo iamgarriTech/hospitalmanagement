@@ -24,6 +24,9 @@ next-env.d.ts
 # media / uploads (never in the repo)
 backend/media/
 backend/staticfiles/
+# Emergency ward snapshots: synthetic in development, patient data in
+# production. Never in the repository either way.
+backend/snapshots/
 
 # os / editor
 .DS_Store

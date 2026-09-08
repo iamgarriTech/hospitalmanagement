@@ -186,7 +186,12 @@ class LabOrder(models.Model):
 
     order_number = models.CharField(max_length=40, unique=True, editable=False)
     visit = models.ForeignKey(
-        "visits.Visit", on_delete=models.PROTECT, related_name="lab_orders"
+        "visits.Visit", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lab_orders",
+    )
+    admission = models.ForeignKey(
+        "inpatient.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="lab_orders",
     )
     patient = models.ForeignKey(
         "patients.Patient", on_delete=models.PROTECT, related_name="lab_orders"
@@ -206,6 +211,12 @@ class LabOrder(models.Model):
     class Meta:
         ordering = ["-ordered_at"]
         indexes = [models.Index(fields=["patient", "-ordered_at"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(visit__isnull=False) | models.Q(admission__isnull=False),
+                name="lab_order_belongs_to_a_visit_or_an_admission",
+            )
+        ]
 
     def __str__(self):
         return f"{self.order_number} — {self.patient.full_name}"

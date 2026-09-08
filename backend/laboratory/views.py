@@ -7,7 +7,8 @@ from rest_framework.response import Response
 
 from audit.models import AuditEvent
 from billing.models import charge
-from core.permissions import HasPermission
+from core.episodes import episode_owner, facility_from_request
+from core.permissions import FacilityScopedMixin, HasPermission
 from visits.models import Visit
 
 from .models import (
@@ -33,18 +34,6 @@ from .serializers import (
     SpecimenSerializer,
     VerifySerializer,
 )
-
-
-class FacilityScopedMixin:
-    def _scope(self, queryset, field="facility_id"):
-        user = self.request.user
-        if user.is_superuser:
-            return queryset
-        required = self.required_permissions.get(self.action)
-        granted = set(user.facilities_for(required)) if required else set()
-        if None in granted:
-            return queryset
-        return queryset.filter(**{f"{field}__in": [f for f in granted if f is not None]})
 
 
 class LabTestCategoryViewSet(viewsets.ModelViewSet):
@@ -116,25 +105,29 @@ class LabOrderViewSet(FacilityScopedMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(patient_id=params["patient"])
         if params.get("visit"):
             queryset = queryset.filter(visit_id=params["visit"])
+        if params.get("admission"):
+            queryset = queryset.filter(admission_id=params["admission"])
         return queryset
 
     def facility_for_permission(self, request):
         if self.action == "create":
-            visit = Visit.objects.filter(pk=request.data.get("visit")).first()
-            return visit.facility if visit else None
+            return facility_from_request(request)
         return None
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
-        visit = data.pop("visit")
+        visit = data.pop("visit", None)
+        admission = data.pop("admission", None)
+        patient, facility = episode_owner(visit=visit, admission=admission)
         tests = data.pop("tests")
 
         order = LabOrder.objects.create(
             visit=visit,
-            patient=visit.patient,
-            facility=visit.facility,
+            admission=admission,
+            patient=patient,
+            facility=facility,
             ordered_by=request.user,
             priority=data.get("priority", LabOrder.ROUTINE),
             clinical_details=data.get("clinical_details", ""),
@@ -156,6 +149,7 @@ class LabOrderViewSet(FacilityScopedMixin, viewsets.ModelViewSet):
             if item.test.service_id:
                 charge(
                     visit=visit,
+                    admission=admission,
                     service_code=item.test.service.code,
                     description=item.test.name,
                     source_type="laboratory.LabOrderItem",

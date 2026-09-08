@@ -94,7 +94,11 @@ def test_every_move_records_who_made_it(as_reception, checked_in):
 @pytest.mark.django_db
 def test_the_visit_advertises_only_legal_next_moves(as_reception, checked_in):
     detail = as_reception.get(reverse("visit-detail", args=[checked_in["id"]])).data
-    assert detail["allowed_transitions"] == sorted([Visit.CALLED, Visit.CANCELLED])
+    # A patient can deteriorate in the waiting room, so admission is a legal
+    # move from here as well as from a consultation.
+    assert detail["allowed_transitions"] == sorted(
+        [Visit.CALLED, Visit.ADMITTED, Visit.CANCELLED]
+    )
 
 
 @pytest.mark.django_db(transaction=True)

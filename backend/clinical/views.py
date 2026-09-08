@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from audit.models import AuditEvent
 from billing.models import Service, charge
+from core.episodes import episode_owner, facility_from_request
 from core.permissions import HasPermission
 from visits.models import Visit
 
@@ -68,20 +69,27 @@ class EncounterViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(patient_id=params["patient"])
         if params.get("visit"):
             queryset = queryset.filter(visit_id=params["visit"])
+        if params.get("admission"):
+            queryset = queryset.filter(admission_id=params["admission"])
         return queryset
 
     def facility_for_permission(self, request):
         if self.action == "create":
-            visit = Visit.objects.filter(pk=request.data.get("visit")).first()
-            return visit.facility if visit else None
+            return facility_from_request(request)
         return None
 
     def create(self, request, *args, **kwargs):
-        """Open a consultation. Patient and facility come from the visit, not the caller."""
+        """Open a consultation or a ward review.
+
+        Patient and facility come from the episode, not the caller — a client
+        that could name them could file a record against the wrong patient.
+        """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
-        visit = data.pop("visit")
+        visit = data.pop("visit", None)
+        admission = data.pop("admission", None)
+        patient, facility = episode_owner(visit=visit, admission=admission)
         diagnoses = data.pop("diagnoses", [])
         narrative = {
             field: data.pop(field, "") for field in EncounterVersion.NARRATIVE
@@ -89,8 +97,9 @@ class EncounterViewSet(viewsets.ModelViewSet):
 
         encounter = Encounter.objects.create(
             visit=visit,
-            patient=visit.patient,
-            facility=visit.facility,
+            admission=admission,
+            patient=patient,
+            facility=facility,
             clinician=request.user,
             encounter_type=data.get("encounter_type", Encounter.CONSULTATION),
             started_at=data.get("started_at") or timezone.now(),
@@ -108,7 +117,12 @@ class EncounterViewSet(viewsets.ModelViewSet):
             resource=encounter,
             patient=encounter.patient,
             facility=encounter.facility,
-            after={"encounter_type": encounter.encounter_type, "visit": visit.visit_number},
+            after={
+                "encounter_type": encounter.encounter_type,
+                # One or the other. A ward review has no visit number.
+                "visit": visit.visit_number if visit else None,
+                "admission": admission.admission_number if admission else None,
+            },
             request=request,
         )
         return Response(
@@ -168,7 +182,11 @@ class EncounterViewSet(viewsets.ModelViewSet):
         consultation = Service.objects.filter(code="CONSULT", is_active=True).first()
         if consultation and consultation.price_at(encounter.facility) is not None:
             charge(
+                # Both are passed; `open_invoice_for` prefers the admission
+                # where there is one, so a ward review bills to the stay and a
+                # clinic consultation to the attendance that started it.
                 visit=encounter.visit,
+                admission=encounter.admission,
                 service_code="CONSULT",
                 description=f"{encounter.get_encounter_type_display()} — "
                             f"{encounter.clinician.full_name}",
@@ -267,21 +285,34 @@ class VitalSignsViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(patient_id=params["patient"])
         if params.get("visit"):
             queryset = queryset.filter(visit_id=params["visit"])
+        if params.get("admission"):
+            queryset = queryset.filter(admission_id=params["admission"])
         if params.get("include_erroneous") != "true":
             queryset = queryset.filter(is_erroneous=False)
         return queryset
 
     def facility_for_permission(self, request):
         if self.action == "create":
-            visit = Visit.objects.filter(pk=request.data.get("visit")).first()
-            return visit.facility if visit else None
+            # A ward observation has no visit — an inpatient on day nine is not
+            # in that morning's outpatient queue.
+            return facility_from_request(request)
         return None
 
-    def perform_create(self, serializer):
-        vitals = serializer.save(recorded_by=self.request.user)
+    def create(self, request, *args, **kwargs):
+        """Record observations, and escalate them if the ward says so.
+
+        The escalation check runs here rather than on a schedule: a
+        deterioration only a nightly job notices has been missed for a night.
+        The escalations raised come back in the response so the nurse sees them
+        at the bedside — an alert nobody sees is not an alert.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        vitals = serializer.save(recorded_by=request.user)
+
         AuditEvent.record(
             action="vitals.recorded",
-            actor=self.request.user,
+            actor=request.user,
             resource=vitals,
             patient=vitals.patient,
             facility=vitals.facility,
@@ -291,9 +322,24 @@ class VitalSignsViewSet(viewsets.ModelViewSet):
                 "pulse_bpm": vitals.pulse_bpm,
                 "oxygen_saturation": vitals.oxygen_saturation,
                 "bmi": vitals.bmi,
+                "admission": vitals.admission_id,
             },
-            request=self.request,
+            request=request,
         )
+
+        escalations = []
+        if vitals.admission_id is not None:
+            from inpatient.serializers import EscalationSerializer
+            from inpatient.services import record_observation_escalations
+
+            raised = record_observation_escalations(
+                observations=vitals, admission=vitals.admission, actor=request.user
+            )
+            escalations = EscalationSerializer(raised, many=True).data
+
+        data = self.get_serializer(vitals).data
+        data["escalations"] = escalations
+        return Response(data, status=http.HTTP_201_CREATED)
 
     @extend_schema(
         parameters=[OpenApiParameter("patient", int, required=True)],

@@ -132,3 +132,115 @@ export function dateAndTime(iso: string) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
+
+/* --- inpatient ----------------------------------------------------------- */
+
+const BED: Record<string, { label: string; tone: Tone }> = {
+  available: { label: 'Free', tone: 'normal' },
+  occupied: { label: 'Occupied', tone: 'accent' },
+  reserved: { label: 'Reserved', tone: 'progress' },
+  cleaning: { label: 'Being cleaned', tone: 'progress' },
+  maintenance: { label: 'Out of service', tone: 'idle' },
+}
+
+export function bedLabel(state: string) {
+  return BED[state]?.label ?? state.replace(/_/g, ' ')
+}
+export function bedTone(state: string): Tone {
+  return BED[state]?.tone ?? 'idle'
+}
+
+const ADMISSION: Record<string, { label: string; tone: Tone }> = {
+  admitted: { label: 'Inpatient', tone: 'accent' },
+  discharge_planned: { label: 'Discharge planned', tone: 'progress' },
+  discharged: { label: 'Discharged', tone: 'normal' },
+}
+
+export function admissionLabel(status: string) {
+  return ADMISSION[status]?.label ?? status.replace(/_/g, ' ')
+}
+export function admissionTone(status: string): Tone {
+  return ADMISSION[status]?.tone ?? 'idle'
+}
+
+/**
+ * Drug-chart cell states.
+ *
+ * `overdue` is abnormal rather than critical: a dose nobody has recorded is a
+ * gap to close, not a harm that has happened. Refused and withheld are
+ * deliberate clinical decisions and read as such — they are not failures.
+ */
+const DOSE: Record<string, { label: string; tone: Tone; short: string }> = {
+  scheduled: { label: 'Not yet due', tone: 'idle', short: '·' },
+  due: { label: 'Due now', tone: 'accent', short: 'DUE' },
+  overdue: { label: 'Overdue', tone: 'abnormal', short: 'LATE' },
+  administered: { label: 'Given', tone: 'normal', short: '✓' },
+  delayed: { label: 'Given late', tone: 'progress', short: '✓L' },
+  missed: { label: 'Missed', tone: 'critical', short: 'M' },
+  refused: { label: 'Refused', tone: 'abnormal', short: 'R' },
+  withheld: { label: 'Withheld', tone: 'abnormal', short: 'W' },
+  discontinued: { label: 'Discontinued', tone: 'idle', short: 'X' },
+}
+
+export function doseLabel(status: string) {
+  return DOSE[status]?.label ?? status
+}
+export function doseTone(status: string): Tone {
+  return DOSE[status]?.tone ?? 'idle'
+}
+/** A one- or two-character mark for a chart cell. Never the only cue: every
+ *  cell also carries the full label as text or an accessible name. */
+export function doseMark(status: string) {
+  return DOSE[status]?.short ?? '?'
+}
+
+const SHIFT: Record<string, string> = {
+  early: 'Early',
+  late: 'Late',
+  night: 'Night',
+}
+
+export function shiftLabel(shift: string) {
+  return SHIFT[shift] ?? shift
+}
+
+/* --- imaging ------------------------------------------------------------- */
+
+const IMAGING: Record<string, { label: string; tone: Tone }> = {
+  requested: { label: 'Requested', tone: 'idle' },
+  scheduled: { label: 'Scheduled', tone: 'progress' },
+  performed: { label: 'Awaiting report', tone: 'progress' },
+  reported: { label: 'Awaiting verification', tone: 'abnormal' },
+  verified: { label: 'Verified', tone: 'normal' },
+  cancelled: { label: 'Cancelled', tone: 'idle' },
+}
+
+export function imagingLabel(status: string) {
+  return IMAGING[status]?.label ?? status
+}
+export function imagingTone(status: string): Tone {
+  return IMAGING[status]?.tone ?? 'idle'
+}
+
+/** The verb for moving an examination *into* a state, for buttons. */
+const IMAGING_ACTIONS: Record<string, string> = {
+  scheduled: 'Schedule',
+  performed: 'Mark performed',
+  reported: 'Write report',
+  verified: 'Verify report',
+  cancelled: 'Cancel',
+}
+
+export function imagingAction(status: string) {
+  return IMAGING_ACTIONS[status] ?? `Move to ${imagingLabel(status).toLowerCase()}`
+}
+
+/** Fluid balance reads with its sign, because the sign is the clinical point. */
+export function millilitres(value: number) {
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${value.toLocaleString('en-NG')} mL`
+}
+
+export function dayAndMonth(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+}

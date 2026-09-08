@@ -151,11 +151,28 @@ class LabOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LabOrder
-        fields = ["id", "order_number", "visit", "patient", "patient_name",
-                  "hospital_number", "facility", "ordered_by", "ordered_by_email",
-                  "ordered_at", "priority", "clinical_details", "items", "tests"]
+        fields = ["id", "order_number", "visit", "admission", "patient",
+                  "patient_name", "hospital_number", "facility", "ordered_by",
+                  "ordered_by_email", "ordered_at", "priority", "clinical_details",
+                  "items", "tests"]
         read_only_fields = ["id", "order_number", "patient", "facility", "ordered_by",
                             "ordered_at"]
+
+    def validate(self, attrs):
+        """One episode or the other, on create.
+
+        A record filed against neither belongs to no episode of care and would
+        appear on nobody's list. Only on create, though: an update never resends
+        the episode — it is already set and read-only — and requiring it here
+        made every edit to a draft fail.
+        """
+        if self.instance is None and (
+            attrs.get("visit") is None and attrs.get("admission") is None
+        ):
+            raise serializers.ValidationError(
+                "This belongs to an attendance or to an admission. Give one."
+            )
+        return attrs
 
 
 class CollectSerializer(serializers.Serializer):

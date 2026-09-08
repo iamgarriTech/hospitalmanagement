@@ -17,12 +17,15 @@ import { type Notification, useNotifications } from '@/lib/notifications'
 import {
   AlertIcon,
   AuditIcon,
+  BedIcon,
   BellIcon,
   BillingIcon,
   ChevronRightIcon,
   ChevronUpDownIcon,
   CollapseIcon,
   DashboardIcon,
+  ImagingIcon,
+
   LabIcon,
   LogoutIcon,
   MenuIcon,
@@ -225,6 +228,46 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      to: '/imaging',
+      end: false,
+      label: 'Radiology',
+      icon: ImagingIcon,
+      show: can('imaging.view_imagingorder'),
+      children: [
+        { to: '/imaging', label: 'Worklist', show: can('imaging.view_imagingorder') },
+        {
+          to: '/imaging/critical',
+          label: 'Critical findings',
+          show: can('imaging.view_imagingorder'),
+        },
+        {
+          to: '/imaging/catalogue',
+          label: 'Examination catalogue',
+          show: can('imaging.view_imagingprocedure'),
+        },
+      ],
+    },
+    {
+      to: '/wards',
+      end: false,
+      label: 'Inpatient',
+      icon: BedIcon,
+      show: can('inpatient.view_ward'),
+      children: [
+        { to: '/wards', label: 'Bed board', show: can('inpatient.view_ward') },
+        {
+          to: '/wards/requests',
+          label: 'Admission requests',
+          show: can('inpatient.view_admissionrequest'),
+        },
+        {
+          to: '/wards/discharges',
+          label: 'Discharges',
+          show: can('inpatient.view_admission'),
+        },
+      ],
+    },
+    {
       to: '/pharmacy',
       end: false,
       label: 'Pharmacy',
@@ -253,10 +296,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       end: false,
       label: 'Configuration',
       icon: SettingsIcon,
-      show: canAny('facilities.view_facility', 'billing.view_paymentmethod'),
+      show: canAny(
+        'facilities.view_facility',
+        'billing.view_paymentmethod',
+        'inpatient.view_ward',
+      ),
       children: [
         { to: '/settings/facilities', label: 'Facilities', show: can('facilities.view_facility') },
         { to: '/settings/roles', label: 'Roles & permissions', show: can('accounts.view_role') },
+        {
+          to: '/settings/wards',
+          label: 'Wards & beds',
+          show: can('inpatient.view_ward'),
+        },
         {
           to: '/settings/payment-methods',
           label: 'Payment methods',

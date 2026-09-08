@@ -153,3 +153,19 @@ export const ShieldIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8.5 12l2.5 2.5 4.5-5" />
   </Icon>
 )
+
+/** A ward bed, for the inpatient section. */
+export const BedIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M3 8v11M3 12h18a0 0 0 0 1 0 0v7M3 19h18M7.5 12V9.5h4a2 2 0 0 1 2 2V12" />
+    <circle cx="6" cy="9" r="1.6" />
+  </Icon>
+)
+
+/** A radiology film, for imaging. */
+export const ImagingIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <rect x="4" y="3" width="16" height="18" rx="2" />
+    <path d="M12 3v18M8 8.5c1.6 1.2 1.6 6.8 0 8M16 8.5c-1.6 1.2-1.6 6.8 0 8" />
+  </Icon>
+)

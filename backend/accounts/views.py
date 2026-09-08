@@ -69,11 +69,18 @@ class MetaView(APIView):
 
     @staticmethod
     def _sample_logins():
-        """One account per role that has one, ordered the way the outpatient day
-        runs so an evaluator can walk it top to bottom."""
+        """One account per role that has one, ordered the way the hospital runs
+        so an evaluator can walk it top to bottom: the outpatient day, then the
+        inpatient stay, then the back office."""
         order = [
+            # Outpatient
             "Receptionist", "Nurse", "Doctor", "Consultant",
-            "Laboratory Scientist", "Laboratory Technician", "Pharmacist",
+            "Laboratory Scientist", "Laboratory Technician",
+            "Radiographer", "Radiologist", "Imaging Registrar",
+            "Pharmacist",
+            # Inpatient
+            "Ward Doctor", "Ward Nurse", "Ward Manager",
+            # Back office
             "Cashier", "Accountant", "Medical Records Officer",
             "Hospital Administrator",
         ]

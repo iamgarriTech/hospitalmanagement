@@ -55,12 +55,29 @@ class EncounterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Encounter
         fields = [
-            "id", "visit", "patient", "patient_name", "facility", "encounter_type",
-            "status", "clinician", "clinician_email", "started_at", "finalised_at",
-            "current", "version_count", "diagnoses", *EncounterVersion.NARRATIVE,
+            "id", "visit", "admission", "patient", "patient_name", "facility",
+            "encounter_type", "status", "clinician", "clinician_email", "started_at",
+            "finalised_at", "current", "version_count", "diagnoses",
+            *EncounterVersion.NARRATIVE,
         ]
         read_only_fields = ["id", "patient", "facility", "status", "clinician",
                             "finalised_at"]
+
+    def validate(self, attrs):
+        """One episode or the other, on create.
+
+        A record filed against neither belongs to no episode of care and would
+        appear on nobody's list. Only on create, though: an update never resends
+        the episode — it is already set and read-only — and requiring it here
+        made every edit to a draft fail.
+        """
+        if self.instance is None and (
+            attrs.get("visit") is None and attrs.get("admission") is None
+        ):
+            raise serializers.ValidationError(
+                "This belongs to an attendance or to an admission. Give one."
+            )
+        return attrs
 
 
 class AmendSerializer(serializers.Serializer):
@@ -81,7 +98,7 @@ class VitalSignsSerializer(serializers.ModelSerializer):
     class Meta:
         model = VitalSigns
         fields = [
-            "id", "patient", "visit", "facility",
+            "id", "patient", "visit", "admission", "facility",
             "temperature_c", "systolic_bp", "diastolic_bp", "blood_pressure",
             "pulse_bpm", "respiratory_rate", "oxygen_saturation",
             "weight_kg", "height_cm", "bmi", "blood_glucose_mmol", "pain_score",
@@ -92,6 +109,12 @@ class VitalSignsSerializer(serializers.ModelSerializer):
                             "is_erroneous", "error_reason"]
 
     def validate(self, attrs):
+        if self.instance is None and (
+            attrs.get("visit") is None and attrs.get("admission") is None
+        ):
+            raise serializers.ValidationError(
+                "An observation belongs to an attendance or to an admission."
+            )
         # BMI is derived; rejecting it explicitly is clearer than ignoring it silently.
         if "bmi" in self.initial_data:
             raise serializers.ValidationError(

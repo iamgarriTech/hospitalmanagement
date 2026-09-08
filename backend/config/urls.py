@@ -12,6 +12,28 @@ from core.config_views import (
     OrganizationViewSet,
 )
 from facilities.views import FacilityViewSet
+from imaging.views import (
+    ImagingModalityViewSet,
+    ImagingOrderItemViewSet,
+    ImagingOrderViewSet,
+    ImagingProcedureViewSet,
+    ImagingReportViewSet,
+)
+from inpatient.views import (
+    AdmissionRequestViewSet,
+    AdmissionViewSet,
+    BedOccupancyViewSet,
+    BedViewSet,
+    EscalationThresholdViewSet,
+    EscalationViewSet,
+    FluidBalanceViewSet,
+    MedicationAdministrationViewSet,
+    NursingAssessmentViewSet,
+    NursingNoteViewSet,
+    RoomViewSet,
+    ScheduledDoseViewSet,
+    WardViewSet,
+)
 from patients.views import PatientViewSet
 from billing.views import (
     CashierSessionViewSet,
@@ -50,6 +72,14 @@ router.register("lab-tests", LabTestViewSet, basename="labtest")
 router.register("lab-orders", LabOrderViewSet, basename="laborder")
 router.register("lab-order-items", LabOrderItemViewSet, basename="laborderitem")
 router.register("lab-results", LabResultViewSet, basename="labresult")
+router.register("imaging-modalities", ImagingModalityViewSet,
+                basename="imagingmodality")
+router.register("imaging-procedures", ImagingProcedureViewSet,
+                basename="imagingprocedure")
+router.register("imaging-orders", ImagingOrderViewSet, basename="imagingorder")
+router.register("imaging-order-items", ImagingOrderItemViewSet,
+                basename="imagingorderitem")
+router.register("imaging-reports", ImagingReportViewSet, basename="imagingreport")
 router.register("notifications", NotificationViewSet, basename="notification")
 router.register("medication-categories", MedicationCategoryViewSet,
                 basename="medicationcategory")
@@ -71,6 +101,22 @@ router.register("departments", DepartmentViewSet, basename="department")
 router.register("clinics", ClinicViewSet, basename="clinic")
 router.register("numbering", NumberSequenceViewSet, basename="numbersequence")
 router.register("audit-events", AuditEventViewSet, basename="auditevent")
+router.register("wards", WardViewSet, basename="ward")
+router.register("rooms", RoomViewSet, basename="room")
+router.register("beds", BedViewSet, basename="bed")
+router.register("bed-occupancies", BedOccupancyViewSet, basename="bedoccupancy")
+router.register("escalation-thresholds", EscalationThresholdViewSet,
+                basename="escalationthreshold")
+router.register("admission-requests", AdmissionRequestViewSet, basename="admissionrequest")
+router.register("admissions", AdmissionViewSet, basename="admission")
+router.register("nursing-assessments", NursingAssessmentViewSet,
+                basename="nursingassessment")
+router.register("nursing-notes", NursingNoteViewSet, basename="nursingnote")
+router.register("fluid-balance", FluidBalanceViewSet, basename="fluidbalanceentry")
+router.register("escalations", EscalationViewSet, basename="escalation")
+router.register("scheduled-doses", ScheduledDoseViewSet, basename="scheduleddose")
+router.register("administrations", MedicationAdministrationViewSet,
+                basename="medicationadministration")
 
 urlpatterns = [
     path("api/meta/", MetaView.as_view(), name="meta"),

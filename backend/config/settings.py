@@ -23,6 +23,12 @@ SECRET_KEY = env("DJANGO_SECRET_KEY", default="insecure-dev-key-not-for-deployme
 DEBUG = env("DJANGO_DEBUG")
 ALLOWED_HOSTS = env("DJANGO_ALLOWED_HOSTS")
 
+# pytest-django forces settings.DEBUG to False after this module is imported, so
+# anything that needs to know what *this deployment* chose — the security
+# settings derived from it, and the tests asserting they were derived correctly —
+# has to read it from here rather than from settings.DEBUG.
+DEPLOYMENT_DEBUG = DEBUG
+
 # No django.contrib.admin: it writes straight through the ORM, bypassing the DRF
 # permission classes and producing none of the audit rows the system guarantees.
 INSTALLED_APPS = [
@@ -40,10 +46,16 @@ INSTALLED_APPS = [
     "visits",
     "clinical",
     "laboratory",
+    # Its own app, parallel to `laboratory`: a different department, different
+    # staff, no specimen, and a report that is prose rather than numbers against
+    # reference ranges.
+    "imaging",
     "pharmacy",
     "billing",
-    "wards",
-    "admissions",
+    # One app for inpatient care: the admission, its bed, the drug chart and the
+    # nursing record are one workflow, and splitting them across four apps buys
+    # a circular import and four migration graphs to keep in step.
+    "inpatient",
     "notifications",
     "audit",
 ]
@@ -112,18 +124,45 @@ CSRF_TRUSTED_ORIGINS = env.list(
 # Guarantee 9: no authentication credential readable by JavaScript. Sessions, not tokens.
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SECURE = not DEBUG
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_AGE = 60 * 60 * 12  # a shift
 CSRF_COOKIE_HTTPONLY = False  # the SPA must read it to echo it back in the header
-CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SAMESITE = "Lax"
+
+# Secure unless a deployment says otherwise, and the only legitimate otherwise is
+# a connection that never leaves the machine — the benchmark talking to gunicorn
+# on the loopback. Overriding this on anything a browser reaches sends session
+# cookies in clear text, so it is named after what it costs rather than after
+# what it enables.
+COOKIES_MAY_TRAVEL_IN_CLEAR = env.bool("COOKIES_MAY_TRAVEL_IN_CLEAR", default=False)
+SESSION_COOKIE_SECURE = not (DEBUG or COOKIES_MAY_TRAVEL_IN_CLEAR)
+CSRF_COOKIE_SECURE = not (DEBUG or COOKIES_MAY_TRAVEL_IN_CLEAR)
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
 X_FRAME_OPTIONS = "DENY"
+
+# TLS is terminated in front of Django in every shape this system deploys in:
+# the browser talks to Next.js, Next.js proxies server-side to Django over the
+# internal network, and a reverse proxy sits in front of Next.js. Django
+# therefore receives plain HTTP and, without being told what the browser
+# actually used, SECURE_SSL_REDIRECT redirects a request that was already HTTPS
+# — forever. That is not a subtle degradation; it is the whole application
+# returning 301 to itself.
+#
+# The header is only trusted when the deployment says a proxy sets it. If Django
+# were ever reachable directly, a client could send `X-Forwarded-Proto: https`
+# itself and walk straight past the redirect, so this must not default to on
+# for a directly-exposed install.
+TRUST_PROXY_TLS_HEADER = env.bool("TRUST_PROXY_TLS_HEADER", default=not DEBUG)
+if TRUST_PROXY_TLS_HEADER:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# Switchable because the LAN-first install (server in the hospital, browsers on
+# the local network) may legitimately terminate TLS at the proxy and speak plain
+# HTTP behind it, and because the benchmark talks to gunicorn directly.
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
 if not DEBUG:
-    SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
@@ -156,6 +195,15 @@ SPECTACULAR_SETTINGS = {
         "GenotypeEnum": "patients.models.Patient.GENOTYPES",
         "AllergySeverityEnum": "patients.models.PatientAllergy.SEVERITIES",
         "AuditOutcomeEnum": "audit.models.AuditEvent.OUTCOME_CHOICES",
+        # Three unrelated things are called "route": how a drug is given, and
+        # how a fluid went in or came out. Named explicitly so the generated
+        # client does not end up with "Route98fEnum".
+        "MedicationRouteEnum": "pharmacy.models.Medication.ROUTE_CHOICES",
+        "FluidRouteEnum": "inpatient.models.FluidBalanceEntry.ROUTES",
+        "AdmissionStatusEnum": "inpatient.models.Admission.STATUS_CHOICES",
+        "BedServiceStateEnum": "inpatient.models.Bed.SERVICE_STATES",
+        "DoseStateEnum": "inpatient.models.MedicationAdministration.STATE_CHOICES",
+        "ShiftEnum": "inpatient.models.nursing.SHIFT_CHOICES",
     },
 }
 
@@ -174,6 +222,11 @@ LANGUAGE_CODE = "en-gb"
 TIME_ZONE = "UTC"  # stored in UTC; rendered in each facility's configured zone
 USE_I18N = True
 USE_TZ = True
+
+# Where the emergency per-ward snapshots are written. Holds patient names,
+# allergies and diagnoses outside the database, so a deployment should point it
+# at an encrypted volume on the server itself — never a network share.
+WARD_SNAPSHOT_ROOT = env("WARD_SNAPSHOT_ROOT", default=str(BASE_DIR / "snapshots"))
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"

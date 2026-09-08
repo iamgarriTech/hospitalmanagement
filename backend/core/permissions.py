@@ -52,3 +52,26 @@ class HasPermission(BasePermission):
             after={"permission": perm, "path": request.path, "method": request.method},
             request=request,
         )
+
+
+class FacilityScopedMixin:
+    """Restricts a queryset to the facilities where the caller holds the verb.
+
+    Scoping in the queryset rather than in the permission class is deliberate:
+    an out-of-scope record must come back as 404, not 403. A 403 confirms the
+    record exists, which is itself a leak — "no such patient" and "a patient you
+    may not see" have to be indistinguishable across facilities.
+
+    Lives here rather than in one app because wards, admissions, the MAR and the
+    laboratory all need exactly this.
+    """
+
+    def _scope(self, queryset, field="facility_id"):
+        user = self.request.user
+        if user.is_superuser:
+            return queryset
+        required = self.required_permissions.get(self.action)
+        granted = set(user.facilities_for(required)) if required else set()
+        if None in granted:
+            return queryset
+        return queryset.filter(**{f"{field}__in": [f for f in granted if f is not None]})

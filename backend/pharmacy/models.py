@@ -13,12 +13,15 @@ contraindications the hospital's own pharmacist maintains. Drug–drug interacti
 checking needs a licensed database and is *not* bundled, so the API states plainly that
 it is not running. A clinician who assumes a check exists prescribes as though it does.
 """
+from decimal import Decimal, InvalidOperation
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import F
 from django.utils import timezone
 
+from core.formatting import trim_decimal
 from core.models import Coding
 from patients.models import NumberSequence
 
@@ -131,7 +134,8 @@ class DoseRange(models.Model):
     def __str__(self):
         return (
             f"{self.medication.generic_name} {self.route}: "
-            f"{self.min_single_dose:g}–{self.max_single_dose:g} {self.dose_unit}"
+            f"{trim_decimal(self.min_single_dose)}–"
+            f"{trim_decimal(self.max_single_dose)} {self.dose_unit}"
         )
 
     def applies_to(self, *, route, age_years=None):
@@ -232,8 +236,17 @@ class Prescription(models.Model):
         related_name="prescriptions",
     )
     visit = models.ForeignKey(
-        "visits.Visit", on_delete=models.PROTECT, related_name="prescriptions"
+        "visits.Visit", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="prescriptions",
     )
+    admission = models.ForeignKey(
+        "inpatient.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="prescriptions",
+    )
+    # Ward medication is administered from a schedule; discharge medication is
+    # dispensed to the patient to take home. Same model, different destination,
+    # and the difference decides which one appears on the summary.
+    is_discharge_medication = models.BooleanField(default=False)
     patient = models.ForeignKey(
         "patients.Patient", on_delete=models.PROTECT, related_name="prescriptions"
     )
@@ -250,9 +263,18 @@ class Prescription(models.Model):
     class Meta:
         ordering = ["-prescribed_at"]
         indexes = [models.Index(fields=["patient", "-prescribed_at"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(visit__isnull=False) | models.Q(admission__isnull=False),
+                name="prescription_belongs_to_a_visit_or_an_admission",
+            )
+        ]
         permissions = [
             ("dispense_medication", "Can dispense medication"),
             ("override_safety_warning", "Can prescribe despite a safety warning"),
+            ("administer_medication", "Can administer medication to an inpatient"),
+            ("override_administration_warning",
+             "Can administer despite a safety warning"),
         ]
 
     def __str__(self):
@@ -316,7 +338,14 @@ class PrescriptionItem(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.medication.generic_name} {self.dose:g}{self.dose_unit}"
+        # Formatted defensively: this string ends up in refusal messages and
+        # audit payloads, and a __str__ that raises turns a clear validation
+        # error into a traceback.
+        try:
+            dose = trim_decimal(self.dose)
+        except (TypeError, InvalidOperation):
+            dose = str(self.dose)
+        return f"{self.medication.generic_name} {dose}{self.dose_unit}"
 
     @property
     def quantity_outstanding(self):
