@@ -139,6 +139,10 @@ class CashierSession(models.Model):
         ]
         permissions = [
             ("reconcile_cashiersession", "Can reconcile a cashier session"),
+            # Correcting reconciled money is not the cashier's own call: the
+            # person who counted it wrong does not get to restate it.
+            ("adjust_cashiersession", "Can adjust a reconciled cashier session"),
+            ("receive_till", "Can receive a till handed over by another cashier"),
         ]
 
     def __str__(self):
@@ -152,6 +156,236 @@ class CashierSession(models.Model):
         return self.payments.aggregate(
             total=models.Sum("amount")
         )["total"] or ZERO
+
+    def expected_by_method(self):
+        """What should be in the till, per payment method.
+
+        Counting one lump sum hides the errors worth finding: a cashier ₦5,000
+        short on cash and ₦5,000 over on transfers has a net variance of zero
+        and two real mistakes. AC-140 counts per method for that reason.
+        """
+        rows = self.payments.values("method_id", "method__name").annotate(
+            total=models.Sum("amount")
+        )
+        return {
+            row["method_id"]: {"name": row["method__name"], "expected": row["total"]}
+            for row in rows
+        }
+
+    def variance_by_method(self):
+        """Expected against counted, per method, with what is unexplained.
+
+        A method with money expected and no count is not zero — it is
+        uncounted, and the two must not look the same at a close.
+        """
+        expected = self.expected_by_method()
+        counted = {count.method_id: count for count in self.counts.all()}
+        rows = []
+        for method_id, entry in expected.items():
+            count = counted.get(method_id)
+            rows.append({
+                "method": method_id,
+                "method_name": entry["name"],
+                "expected": entry["expected"],
+                "counted": count.counted if count else None,
+                "variance": (count.counted - entry["expected"]) if count else None,
+                "note": count.note if count else "",
+                "counted_at_all": count is not None,
+            })
+        # A method counted that took nothing: worth showing, because money in
+        # the wrong drawer is a real event.
+        for method_id, count in counted.items():
+            if method_id not in expected:
+                rows.append({
+                    "method": method_id,
+                    "method_name": count.method.name,
+                    "expected": ZERO,
+                    "counted": count.counted,
+                    "variance": count.counted,
+                    "note": count.note,
+                    "counted_at_all": True,
+                })
+        return sorted(rows, key=lambda row: row["method_name"])
+
+    def unexplained_variances(self):
+        """What stops this session being reconciled. AC-140 (negative).
+
+        Either a method with a variance and no explanation, or a method that
+        took money and was never counted at all.
+        """
+        problems = []
+        for row in self.variance_by_method():
+            if not row["counted_at_all"]:
+                problems.append(
+                    f"{row['method_name']} took {row['expected']} and has not been "
+                    f"counted."
+                )
+            elif row["variance"] != ZERO and not row["note"].strip():
+                direction = "over" if row["variance"] > ZERO else "short"
+                problems.append(
+                    f"{row['method_name']} is {abs(row['variance'])} {direction} "
+                    f"and has no explanation."
+                )
+        return problems
+
+    def variance_summary_for_audit(self):
+        """Compact per-method figures for the audit row. AC-140 + guarantee 2.
+
+        The audit entry has to say what was counted against what was taken, per
+        method — a net variance of zero in the log would hide the two errors
+        that produced it.
+        """
+        return {
+            row["method_name"]: {
+                "expected": str(row["expected"]),
+                "counted": None if row["counted"] is None else str(row["counted"]),
+                "variance": None if row["variance"] is None else str(row["variance"]),
+                "note": row["note"],
+            }
+            for row in self.variance_by_method()
+        }
+
+    @property
+    def net_variance(self):
+        return sum(
+            (row["variance"] or ZERO for row in self.variance_by_method()), ZERO
+        )
+
+
+class SessionCount(models.Model):
+    """What the cashier actually counted, for one payment method.
+
+    A row per method rather than a column on the session, because a hospital
+    adds payment methods at runtime and a column per method would be a
+    migration every time somebody starts taking transfers.
+    """
+
+    session = models.ForeignKey(
+        CashierSession, on_delete=models.CASCADE, related_name="counts"
+    )
+    method = models.ForeignKey(
+        PaymentMethod, on_delete=models.PROTECT, related_name="session_counts"
+    )
+    counted = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.CharField(
+        max_length=255, blank=True,
+        help_text="Required where the count disagrees with what was taken.",
+    )
+    counted_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["session", "method__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["session", "method"], name="one_count_per_session_and_method"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(counted__gte=0), name="count_not_negative"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.method.name}: {self.counted}"
+
+
+class SessionAdjustment(models.Model):
+    """A correction to a reconciled session.
+
+    AC-141. Reconciled money does not change, so a correction is a new entry
+    that names the session it corrects rather than an edit to it. Same
+    guarantee as an invoice: the original stays exactly as it was reconciled,
+    and the adjustment sits beside it with a reason and an author.
+    """
+
+    SHORTAGE = "shortage"
+    OVERAGE = "overage"
+    MISPOSTED = "misposted"
+    REASON_CHOICES = [
+        (SHORTAGE, "Shortage found after reconciliation"),
+        (OVERAGE, "Overage found after reconciliation"),
+        (MISPOSTED, "Taken against the wrong method or session"),
+    ]
+
+    session = models.ForeignKey(
+        CashierSession, on_delete=models.PROTECT, related_name="adjustments"
+    )
+    method = models.ForeignKey(
+        PaymentMethod, on_delete=models.PROTECT, related_name="session_adjustments",
+        null=True, blank=True,
+    )
+    kind = models.CharField(max_length=12, choices=REASON_CHOICES)
+    # Signed: negative for a shortage, positive for an overage. A single signed
+    # column beats two columns nobody remembers to read together.
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.TextField()
+    raised_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="session_adjustments",
+    )
+    raised_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-raised_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(amount=0), name="adjustment_is_not_zero"
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(reason=""), name="adjustment_states_a_reason"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.amount} on {self.session}"
+
+
+class TillHandover(models.Model):
+    """One cashier passing the till to another mid-day. AC-142.
+
+    Both signatures, because a float that changes hands with one person's word
+    for it is a float nobody can account for afterwards. The outgoing session
+    closes and the incoming one opens with the counted float, so the money is
+    never in two sessions and never in none.
+    """
+
+    from_session = models.OneToOneField(
+        CashierSession, on_delete=models.PROTECT, related_name="handed_over"
+    )
+    to_session = models.OneToOneField(
+        CashierSession, on_delete=models.PROTECT, related_name="received_from"
+    )
+    float_handed = models.DecimalField(max_digits=12, decimal_places=2)
+
+    handed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="tills_handed_over",
+    )
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="tills_received",
+    )
+    handed_at = models.DateTimeField(default=timezone.now)
+    note = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-handed_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(float_handed__gte=0),
+                name="handover_float_not_negative",
+            ),
+            # One person cannot hand a till to themselves: the second signature
+            # is the whole control.
+            models.CheckConstraint(
+                condition=~models.Q(handed_by=models.F("received_by")),
+                name="handover_needs_two_people",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.handed_by.email} → {self.received_by.email}: {self.float_handed}"
+        )
 
 
 class Invoice(models.Model):

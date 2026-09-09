@@ -18,18 +18,33 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import User
+from audit.models import AuditEvent
 from billing.models import (
     CashierSession,
     Invoice,
     Payment,
     PaymentMethod,
+    SessionCount,
+    TillHandover,
     charge,
     open_invoice_for,
 )
+from billing.till import hand_over_till
 from clinical.models import Diagnosis, Encounter, EncounterVersion, VitalSigns
 from facilities.models import Clinic, Facility
 from imaging.models import ImagingOrder, ImagingOrderItem
 from inpatient.models import FluidBalanceEntry
+from inventory.models import InventoryItem, PurchaseRequest, Store, Supplier, SupplierInvoice
+from inventory.procurement import (
+    approve_invoice,
+    decide_request,
+    new_request,
+    raise_order,
+    receive_goods,
+    run_match,
+    submit_request,
+)
+from inventory.stock import issue as issue_stock
 from laboratory.models import LabOrder, LabOrderItem, LabTest
 from laboratory.results import enter_results, verify_results
 from patients.models import Patient, PatientAllergy, PatientChronicCondition
@@ -138,6 +153,11 @@ class Command(BaseCommand):
                 ("doctor", "doctor@demo.test"), ("consultant", "consultant@demo.test"),
                 ("lab", "lab@demo.test"), ("pharmacist", "pharmacist@demo.test"),
                 ("cashier", "cashier@demo.test"),
+                ("relief_cashier", "cashier2@demo.test"),
+                ("storekeeper", "stores@demo.test"),
+                ("stores_manager", "storesmgr@demo.test"),
+                ("buyer", "buyer@demo.test"),
+                ("purchasing", "purchasing@demo.test"),
                 ("ward_doctor", "warddoctor@demo.test"),
                 ("ward_nurse", "wardnurse@demo.test"),
                 ("ward_manager", "wardmanager@demo.test"),
@@ -161,7 +181,15 @@ class Command(BaseCommand):
         counts = dict.fromkeys(["waiting", "with_doctor", "in_lab", "critical", "at_pharmacy", "at_cash_desk", "completed", "admitted", "discharged"], 0)
 
         total = options["patients"]
+        handover_after = total // 2
         for index in range(total):
+            # The shift changes partway through the day, so both tills end up
+            # with real money in them: one closed and awaiting sign-off, one
+            # open and still taking payments.
+            if index == handover_after:
+                session = self._hand_the_till_over(
+                    session, facility=facility, staff=staff
+                )
             patient = self._make_patient(facility, index)
             visit = Visit.objects.create(
                 patient=patient, facility=facility, clinic=clinic,
@@ -289,6 +317,8 @@ class Command(BaseCommand):
             else:
                 counts["at_cash_desk"] += 1
 
+        self._run_the_stores(facility=facility, staff=staff)
+
         self.stdout.write(self.style.SUCCESS(f"Walked {total} synthetic patients:"))
         for stage, count in counts.items():
             self.stdout.write(f"  {count:>3} {stage.replace('_', ' ')}")
@@ -298,6 +328,186 @@ class Command(BaseCommand):
             f"{Invoice.objects.count()} invoices, "
             f"{Prescription.objects.count()} prescriptions"
         )
+
+    # --- the stores ----------------------------------------------------------
+
+    def _run_the_stores(self, *, facility, staff):
+        """A day in the stores: issues out, and procurement mid-flight.
+
+        Left deliberately unfinished, like the rest of the demo. A request
+        waiting for a decision, an order half delivered, and an invoice that
+        does not match what arrived — because a procurement screen with nothing
+        outstanding on it demonstrates none of the controls that matter.
+        """
+        if PurchaseRequest.objects.exists():
+            return  # this command is additive; don't stack a second run's worth
+
+        main = Store.objects.filter(facility=facility, code="MAIN-ST").first()
+        theatre = Store.objects.filter(facility=facility, code="THEATRE-ST").first()
+        ward_store = Store.objects.filter(facility=facility, code="MMW-ST").first()
+        if main is None:
+            return
+
+        # Issues to the wards, so the ledgers are not empty.
+        for store, target in ((ward_store, "Male Medical Ward"),
+                              (theatre, "Theatre 2")):
+            if store is None:
+                continue
+            for record in store.records.select_related("item"):
+                available = record.usable_on_hand()
+                if available <= record.reorder_level:
+                    continue
+                issue_stock(
+                    record=record,
+                    quantity=max(1, min(3, available - record.reorder_level)),
+                    actor=staff["storekeeper"],
+                    issued_to=target,
+                    reason="Morning round",
+                )
+
+        gloves = InventoryItem.objects.filter(code="GLV-M").first()
+        cannula = InventoryItem.objects.filter(code="CAN-20").first()
+        gauze = InventoryItem.objects.filter(code="GZE-10").first()
+        supplier = Supplier.objects.filter(code="LMS").first()
+        depot = Supplier.objects.filter(code="ISD").first()
+        if not all([gloves, cannula, gauze, supplier, depot]):
+            return
+
+        # 1. A request sitting with the approver.
+        waiting = new_request(
+            store=main, actor=staff["buyer"],
+            justification="Theatre list is heavy next week and the ward store is "
+                          "drawing on the main store daily.",
+            lines=[
+                {"item": gloves, "quantity": 200, "cost": "1500.00"},
+                {"item": cannula, "quantity": 1000, "cost": "120.00"},
+            ],
+        )
+        submit_request(waiting, actor=staff["buyer"])
+
+        # 2. An approved request, ordered, and half delivered.
+        ordered = new_request(
+            store=main, actor=staff["buyer"],
+            justification="Routine monthly top-up.",
+            lines=[
+                {"item": gauze, "quantity": 400, "cost": "300.00"},
+                {"item": gloves, "quantity": 100, "cost": "1500.00"},
+            ],
+        )
+        submit_request(ordered, actor=staff["buyer"])
+        decide_request(
+            ordered, approve=True, actor=staff["purchasing"],
+            note="Approved against the monthly consumables budget.",
+        )
+        order = raise_order(
+            request=ordered, supplier=supplier, actor=staff["buyer"],
+            prices={gauze.pk: Decimal("295.00"), gloves.pk: Decimal("1480.00")},
+            expected_date=timezone.localdate() + timedelta(days=4),
+            note="Confirmed by telephone with Bode.",
+        )
+        gauze_line = order.lines.get(item=gauze)
+        receive_goods(
+            order=order, actor=staff["storekeeper"], delivery_note="DN-77412",
+            deliveries=[{
+                "order_line": gauze_line, "quantity": 250,
+                "lot_number": "LMS-GZ-8841",
+                "expiry_date": timezone.localdate() + timedelta(days=730),
+            }],
+            note="Balance to follow; driver said Thursday.",
+        )
+
+        # 3. An invoice that does not match what arrived, queried and waiting.
+        invoice = SupplierInvoice.objects.create(
+            order=order, supplier_reference="LMS/2026/4471",
+            invoice_date=timezone.localdate(), amount=order.total_ordered(),
+            recorded_by=staff["buyer"],
+        )
+        run_match(invoice, actor=staff["buyer"])
+
+        # 4. A second, smaller order fully delivered and cleanly matched, so the
+        #    screen shows what a correct one looks like beside the queried one.
+        clean = new_request(
+            store=theatre or main, actor=staff["buyer"],
+            justification="Theatre gowns for the elective list.",
+            lines=[{"item": gauze, "quantity": 40, "cost": "300.00"}],
+        )
+        submit_request(clean, actor=staff["buyer"])
+        # ₦12,400 against the theatre store's ₦10,000 limit, so it needs a
+        # decision — which is the rule working rather than a nuisance.
+        decide_request(
+            clean, approve=True, actor=staff["purchasing"],
+            note="Approved; elective list is confirmed.",
+        )
+        clean_order = raise_order(
+            request=clean, supplier=depot, actor=staff["buyer"],
+            prices={gauze.pk: Decimal("310.00")},
+            expected_date=timezone.localdate() - timedelta(days=1),
+        )
+        receive_goods(
+            order=clean_order, actor=staff["storekeeper"], delivery_note="ISD-2201",
+            deliveries=[{
+                "order_line": clean_order.lines.get(), "quantity": 40,
+                "lot_number": "ISD-GZ-1120",
+                "expiry_date": timezone.localdate() + timedelta(days=700),
+            }],
+        )
+        clean_invoice = SupplierInvoice.objects.create(
+            order=clean_order, supplier_reference="ISD/2026/0912",
+            invoice_date=timezone.localdate() - timedelta(days=1),
+            amount=clean_order.total_ordered(), recorded_by=staff["buyer"],
+        )
+        run_match(clean_invoice, actor=staff["buyer"])
+        approve_invoice(clean_invoice, actor=staff["purchasing"])
+
+    # --- the cash desk -------------------------------------------------------
+
+    def _hand_the_till_over(self, morning, *, facility, staff):
+        """Pass the till from the morning cashier to the afternoon one.
+
+        A demo that cannot show this cannot show the control it exists for: two
+        named people, one continuous float, and a count neither of them made
+        alone. Returns the session that takes the rest of the day's payments.
+        """
+        if TillHandover.objects.filter(from_session=morning).exists():
+            return morning
+
+        # This command is additive rather than idempotent, so a second run
+        # finds the relief cashier still holding the till from the first. One
+        # person cannot hold two open tills — the API refuses it for the same
+        # reason — so the shift simply does not change again today.
+        if CashierSession.objects.filter(
+            cashier=staff["relief_cashier"], facility=facility,
+            status=CashierSession.OPEN,
+        ).exists():
+            return morning
+
+        taken = morning.expected_by_method()
+        if not taken:
+            return morning
+
+        # Counted together, and correct — the demo shows the mechanism, not a
+        # cashier being short.
+        SessionCount.objects.bulk_create([
+            SessionCount(session=morning, method_id=method_id, counted=entry["expected"])
+            for method_id, entry in taken.items()
+        ])
+        handover = hand_over_till(
+            morning,
+            to_user=staff["relief_cashier"],
+            float_handed=morning.opening_float + morning.expected_total(),
+            note="Afternoon shift, counted together at 14:00.",
+        )
+        AuditEvent.record(
+            action="cashier_session.handed_over",
+            actor=staff["relief_cashier"], resource=handover, facility=facility,
+            after={"from_session": str(morning.pk),
+                   "to_session": str(handover.to_session_id),
+                   "float_handed": str(handover.float_handed),
+                   "handed_by": staff["cashier"].email,
+                   "received_by": staff["relief_cashier"].email},
+            reason=handover.note,
+        )
+        return handover.to_session
 
     # --- the inpatient stay --------------------------------------------------
 

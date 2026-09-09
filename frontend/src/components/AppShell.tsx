@@ -25,6 +25,7 @@ import {
   CollapseIcon,
   DashboardIcon,
   ImagingIcon,
+  StoresIcon,
 
   LabIcon,
   LogoutIcon,
@@ -292,6 +293,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      to: '/stores',
+      end: false,
+      label: 'Stores',
+      icon: StoresIcon,
+      show: can('inventory.view_stockrecord'),
+      children: [
+        { to: '/stores', label: 'Stock alerts', show: can('inventory.view_stockrecord') },
+      ],
+    },
+    {
       to: '/insurance',
       end: false,
       label: 'Insurance',
@@ -320,6 +331,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         'facilities.view_facility',
         'billing.view_paymentmethod',
         'inpatient.view_ward',
+        'inventory.view_store',
       ),
       children: [
         { to: '/settings/facilities', label: 'Facilities', show: can('facilities.view_facility') },
@@ -328,6 +340,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           to: '/settings/wards',
           label: 'Wards & beds',
           show: can('inpatient.view_ward'),
+        },
+        {
+          to: '/settings/stores',
+          label: 'Stores & items',
+          show: can('inventory.view_store'),
         },
         {
           to: '/settings/payment-methods',

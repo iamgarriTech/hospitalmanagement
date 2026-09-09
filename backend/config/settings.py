@@ -57,6 +57,11 @@ INSTALLED_APPS = [
     # nursing record are one workflow, and splitting them across four apps buys
     # a circular import and four migration graphs to keep in step.
     "inpatient",
+    # One app for the supply chain: items, stores, stock, movements, and the
+    # procurement that lands goods in them. A purchase order that cannot name
+    # the store the goods arrive at is a form that does nothing, so they belong
+    # together.
+    "inventory",
     "notifications",
     "audit",
 ]

@@ -1,3 +1,7 @@
+from decimal import Decimal
+
+from django.db.models import Sum
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import (
@@ -10,6 +14,9 @@ from .models import (
     Service,
     ServiceCategory,
     ServicePrice,
+    SessionAdjustment,
+    SessionCount,
+    TillHandover,
 )
 
 
@@ -106,21 +113,119 @@ class InvoiceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class MethodVarianceSerializer(serializers.Serializer):
+    """One row of the count sheet. Read-only; derived, never stored as such."""
+
+    method = serializers.IntegerField()
+    method_name = serializers.CharField()
+    expected = serializers.DecimalField(max_digits=12, decimal_places=2)
+    counted = serializers.DecimalField(
+        max_digits=12, decimal_places=2, allow_null=True
+    )
+    variance = serializers.DecimalField(
+        max_digits=12, decimal_places=2, allow_null=True
+    )
+    note = serializers.CharField(allow_blank=True)
+    counted_at_all = serializers.BooleanField()
+
+
+class SessionAdjustmentSerializer(serializers.ModelSerializer):
+    raised_by_email = serializers.CharField(source="raised_by.email", read_only=True)
+    method_name = serializers.CharField(source="method.name", read_only=True)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = SessionAdjustment
+        fields = ["id", "session", "method", "method_name", "kind", "kind_display",
+                  "amount", "reason", "raised_by", "raised_by_email", "raised_at"]
+        read_only_fields = ["id", "session", "raised_by", "raised_at"]
+
+    def validate_amount(self, amount):
+        # The database refuses this too, but reaching it produces a 500 on what
+        # is really a user putting nothing in the box.
+        if amount == 0:
+            raise serializers.ValidationError(
+                "An adjustment of zero corrects nothing. State the amount the "
+                "session was out by, negative for a shortage."
+            )
+        return amount
+
+    def validate(self, data):
+        amount, kind = data.get("amount"), data.get("kind")
+        if kind == SessionAdjustment.SHORTAGE and amount > 0:
+            raise serializers.ValidationError(
+                {"amount": "A shortage is negative — money that is not there."}
+            )
+        if kind == SessionAdjustment.OVERAGE and amount < 0:
+            raise serializers.ValidationError(
+                {"amount": "An overage is positive — money that should not be there."}
+            )
+        return data
+
+
+class TillHandoverSerializer(serializers.ModelSerializer):
+    handed_by_email = serializers.CharField(source="handed_by.email", read_only=True)
+    received_by_email = serializers.CharField(
+        source="received_by.email", read_only=True
+    )
+
+    class Meta:
+        model = TillHandover
+        fields = ["id", "from_session", "to_session", "float_handed", "handed_by",
+                  "handed_by_email", "received_by", "received_by_email", "handed_at",
+                  "note"]
+        read_only_fields = fields
+
+
 class CashierSessionSerializer(serializers.ModelSerializer):
     cashier_email = serializers.CharField(source="cashier.email", read_only=True)
     expected_total = serializers.SerializerMethodField()
     is_frozen = serializers.BooleanField(read_only=True)
+    variance_by_method = serializers.SerializerMethodField()
+    unexplained = serializers.SerializerMethodField()
+    net_variance = serializers.SerializerMethodField()
+    adjustments = SessionAdjustmentSerializer(many=True, read_only=True)
+    adjustment_total = serializers.SerializerMethodField()
 
     class Meta:
         model = CashierSession
         fields = ["id", "cashier", "cashier_email", "facility", "status", "opened_at",
                   "closed_at", "reconciled_at", "opening_float", "counted_total",
-                  "variance_note", "expected_total", "is_frozen"]
+                  "variance_note", "expected_total", "is_frozen",
+                  "variance_by_method", "unexplained", "net_variance",
+                  "adjustments", "adjustment_total"]
         read_only_fields = ["id", "cashier", "status", "closed_at", "reconciled_at",
-                            "counted_total", "expected_total", "is_frozen"]
+                            "counted_total", "expected_total", "is_frozen",
+                            "variance_by_method", "unexplained", "net_variance",
+                            "adjustments", "adjustment_total"]
 
     def get_expected_total(self, session) -> str:
         return str(session.expected_total())
+
+    @extend_schema_field(MethodVarianceSerializer(many=True))
+    def get_variance_by_method(self, session):
+        return MethodVarianceSerializer(session.variance_by_method(), many=True).data
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_unexplained(self, session):
+        """What stands between this session and a signature.
+
+        Empty while the till is open: an uncounted method is not a problem on a
+        drawer still taking money, and reporting one would put a warning on
+        every open till in the building. The handover flow, which does count an
+        open till, reads its refusal from the POST response rather than here.
+        """
+        if session.status == CashierSession.OPEN:
+            return []
+        return session.unexplained_variances()
+
+    def get_net_variance(self, session) -> str:
+        return str(session.net_variance)
+
+    def get_adjustment_total(self, session) -> str:
+        return str(
+            session.adjustments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+        )
 
 
 class DiscountSerializer(serializers.Serializer):
@@ -141,9 +246,51 @@ class RefundRequestSerializer(serializers.Serializer):
     reason = serializers.CharField()
 
 
+class CountEntrySerializer(serializers.Serializer):
+    method = serializers.PrimaryKeyRelatedField(queryset=PaymentMethod.objects.all())
+    counted = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    note = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+
+
 class ReconcileSerializer(serializers.Serializer):
-    counted_total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    """AC-140. A count per payment method, not one figure for the drawer."""
+
+    counts = CountEntrySerializer(many=True, allow_empty=True)
     variance_note = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_counts(self, counts):
+        seen = set()
+        for entry in counts:
+            if entry["method"].pk in seen:
+                raise serializers.ValidationError(
+                    f"{entry['method'].name} is counted twice."
+                )
+            seen.add(entry["method"].pk)
+        return counts
+
+
+class SessionCountSerializer(serializers.ModelSerializer):
+    method_name = serializers.CharField(source="method.name", read_only=True)
+
+    class Meta:
+        model = SessionCount
+        fields = ["id", "session", "method", "method_name", "counted", "note",
+                  "counted_at"]
+        read_only_fields = fields
+
+
+class HandoverSerializer(serializers.Serializer):
+    """AC-142. The incoming cashier is named by whoever is receiving the till."""
+
+    counts = CountEntrySerializer(many=True, allow_empty=True)
+    float_handed = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0
+    )
+    note = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
 
 
 class VoidSerializer(serializers.Serializer):

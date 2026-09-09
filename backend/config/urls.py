@@ -54,6 +54,22 @@ from insurance.views import (
     PreauthorisationViewSet,
     ProviderPaymentViewSet,
 )
+from inventory.views import (
+    GoodsReceiptViewSet,
+    InventoryItemViewSet,
+    ItemCategoryViewSet,
+    PurchaseOrderViewSet,
+    PurchaseRequestViewSet,
+    RaiseOrderView,
+    StockAdjustmentViewSet,
+    StockAlertViewSet,
+    StockMovementViewSet,
+    StockRecordViewSet,
+    StockTransferViewSet,
+    StoreViewSet,
+    SupplierInvoiceViewSet,
+    SupplierViewSet,
+)
 from laboratory.views import (
     LabOrderItemViewSet,
     LabOrderViewSet,
@@ -140,6 +156,25 @@ router.register("claims", ClaimBatchViewSet, basename="claimbatch")
 router.register("claim-lines", ClaimLineViewSet, basename="claimline")
 router.register("provider-payments", ProviderPaymentViewSet,
                 basename="providerpayment")
+
+router.register("item-categories", ItemCategoryViewSet, basename="itemcategory")
+router.register("inventory-items", InventoryItemViewSet, basename="inventoryitem")
+router.register("stores", StoreViewSet, basename="store")
+router.register("stock-records", StockRecordViewSet, basename="stockrecord")
+router.register("stock-movements", StockMovementViewSet, basename="stockmovement")
+router.register("stock-transfers", StockTransferViewSet, basename="stocktransfer")
+router.register("stock-adjustments", StockAdjustmentViewSet,
+                basename="stockadjustment")
+router.register("stock-alerts", StockAlertViewSet, basename="stockalert")
+
+router.register("suppliers", SupplierViewSet, basename="supplier")
+router.register("purchase-requests", PurchaseRequestViewSet,
+                basename="purchaserequest")
+router.register("purchase-orders", PurchaseOrderViewSet, basename="purchaseorder")
+router.register("raise-purchase-order", RaiseOrderView, basename="raisepurchaseorder")
+router.register("goods-receipts", GoodsReceiptViewSet, basename="goodsreceipt")
+router.register("supplier-invoices", SupplierInvoiceViewSet,
+                basename="supplierinvoice")
 
 urlpatterns = [
     path("api/meta/", MetaView.as_view(), name="meta"),

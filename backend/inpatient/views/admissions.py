@@ -6,7 +6,6 @@ settled before a patient can leave are the substance of the phase, and a view is
 the wrong place to be able to read them.
 """
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
 from django.db.models import Prefetch
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -20,7 +19,13 @@ from core.permissions import FacilityScopedMixin, HasPermission
 from facilities.models import Facility
 from patients.models import Patient
 
-from ..models import Admission, AdmissionRequest, BedOccupancy, BedTransfer
+from ..models import (
+    Admission,
+    AdmissionRequest,
+    BedOccupancy,
+    BedTaken,
+    BedTransfer,
+)
 from ..serializers import (
     AdmissionRequestSerializer,
     AdmissionSerializer,
@@ -50,7 +55,11 @@ def _validation_response(error):
     into one string a cashier cannot act on.
     """
     detail = error.message_dict if hasattr(error, "message_dict") else error.messages
-    return Response({"detail": detail}, status=http.HTTP_400_BAD_REQUEST)
+    # A bed taken by somebody else is a conflict the ward resolves by choosing
+    # another bed. Answering 400 would tell them they sent something wrong.
+    status = (http.HTTP_409_CONFLICT if isinstance(error, BedTaken)
+              else http.HTTP_400_BAD_REQUEST)
+    return Response({"detail": detail}, status=status)
 
 
 class AdmissionRequestViewSet(FacilityScopedMixin, viewsets.ModelViewSet):
@@ -358,13 +367,6 @@ class AdmissionViewSet(FacilityScopedMixin, viewsets.ReadOnlyModelViewSet):
                 request=request,
             )
             return _validation_response(error)
-        except IntegrityError:
-            # The exclusion constraint, when the bed was taken between the
-            # check and the write.
-            return Response(
-                {"detail": f"{serializer.validated_data['to_bed']} is occupied."},
-                status=http.HTTP_409_CONFLICT,
-            )
 
         AuditEvent.record(
             action="admission.transferred",

@@ -16,11 +16,18 @@ from .nursing import (
     NursingAssessment,
     NursingNote,
 )
-from .wards import Bed, BedOccupancy, EscalationThreshold, Room, Ward
+from .wards import (
+    Bed,
+    BedOccupancy,
+    BedTaken,
+    EscalationThreshold,
+    Room,
+    Ward,
+)
 
 __all__ = [
     "Admission", "AdmissionRequest", "BedTransfer",
-    "Bed", "BedOccupancy", "EscalationThreshold", "Room", "Ward",
+    "Bed", "BedOccupancy", "BedTaken", "EscalationThreshold", "Room", "Ward",
     "MedicationAdministration", "ScheduledDose", "STANDARD_TIMES", "times_for",
     "Escalation", "FluidBalanceEntry", "NursingAssessment", "NursingNote",
 ]

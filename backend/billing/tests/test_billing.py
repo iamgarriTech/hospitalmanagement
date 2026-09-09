@@ -268,7 +268,8 @@ def test_reconciled_money_cannot_be_changed_by_anyone(
     as_cashier.post(reverse("cashiersession-close", args=[session_id]))
     reconciled = as_accountant.post(
         reverse("cashiersession-reconcile", args=[session_id]),
-        {"counted_total": "5000.00"}, format="json",
+        {"counts": [{"method": tariff["cash"].pk, "counted": "5000.00"}]},
+        format="json",
     )
     assert reconciled.status_code == 200
     assert reconciled.data["status"] == CashierSession.RECONCILED
@@ -302,20 +303,22 @@ def test_reconciling_with_a_variance_requires_an_explanation(
 
     unexplained = as_accountant.post(
         reverse("cashiersession-reconcile", args=[session_id]),
-        {"counted_total": "4800.00"}, format="json",
+        {"counts": [{"method": tariff["cash"].pk, "counted": "4800.00"}]},
+        format="json",
     )
     assert unexplained.status_code == 400
-    assert "variance of -200.00 must be explained" in unexplained.data["variance_note"][0]
+    assert "Cash is 200.00 short" in unexplained.data["unexplained"][0]
 
     explained = as_accountant.post(
         reverse("cashiersession-reconcile", args=[session_id]),
-        {"counted_total": "4800.00", "variance_note": "₦200 shortfall, reported to "
-                                                       "the accountant"},
+        {"counts": [{"method": tariff["cash"].pk, "counted": "4800.00",
+                     "note": "₦200 shortfall, reported to the accountant"}]},
         format="json",
     )
     assert explained.status_code == 200
     event = AuditEvent.objects.get(action="cashier_session.reconciled")
-    assert event.changes["after"]["variance"] == "-200.00"
+    assert event.changes["after"]["net_variance"] == "-200.00"
+    assert event.changes["after"]["by_method"]["Cash"]["variance"] == "-200.00"
 
 
 @pytest.mark.django_db

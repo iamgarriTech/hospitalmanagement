@@ -21,6 +21,30 @@ export function usePaymentMethods(enabled = true) {
   })
 }
 
+export type MethodVariance = {
+  method: number
+  method_name: string
+  expected: string
+  counted: string | null
+  variance: string | null
+  note: string
+  counted_at_all: boolean
+}
+
+export type SessionAdjustment = {
+  id: number
+  session: number
+  method: number | null
+  method_name: string | null
+  kind: 'shortage' | 'overage' | 'misposted'
+  kind_display: string
+  amount: string
+  reason: string
+  raised_by: number
+  raised_by_email: string
+  raised_at: string
+}
+
 export type CashierSession = {
   id: number
   cashier: number
@@ -35,7 +59,28 @@ export type CashierSession = {
   variance_note: string
   expected_total: string
   is_frozen: boolean
+  variance_by_method: MethodVariance[]
+  unexplained: string[]
+  net_variance: string
+  adjustments: SessionAdjustment[]
+  adjustment_total: string
 }
+
+export type TillHandover = {
+  id: number
+  from_session: number
+  to_session: number
+  float_handed: string
+  handed_by: number
+  handed_by_email: string
+  received_by: number
+  received_by_email: string
+  handed_at: string
+  note: string
+}
+
+/** One line of the count sheet as the cashier fills it in. */
+export type CountEntry = { method: number; counted: string; note: string }
 
 export function useCashierSessions(enabled = true) {
   return useQuery({
@@ -74,15 +119,59 @@ export function useReconcileSession() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({
-      id, counted_total, variance_note,
+      id, counts, variance_note,
     }: {
       id: number
-      counted_total: string
+      counts: CountEntry[]
       variance_note: string
     }) =>
       request<CashierSession>(`/cashier-sessions/${id}/reconcile/`, {
         method: 'POST',
-        body: { counted_total, variance_note },
+        body: { counts, variance_note },
+      }),
+    onSettled: () => invalidateMoney(client),
+  })
+}
+
+/** A correction to a session already signed off. Never an edit to it. */
+export function useAdjustSession() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id, kind, method, amount, reason,
+    }: {
+      id: number
+      kind: SessionAdjustment['kind']
+      method: number | null
+      amount: string
+      reason: string
+    }) =>
+      request<SessionAdjustment>(`/cashier-sessions/${id}/adjust/`, {
+        method: 'POST',
+        body: { kind, method, amount, reason },
+      }),
+    onSettled: () => invalidateMoney(client),
+  })
+}
+
+/**
+ * Taking over a colleague's till. Called by whoever is receiving it, which is
+ * what makes the second signature real.
+ */
+export function useReceiveTill() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      id, counts, float_handed, note,
+    }: {
+      id: number
+      counts: CountEntry[]
+      float_handed: string
+      note: string
+    }) =>
+      request<TillHandover>(`/cashier-sessions/${id}/handover/`, {
+        method: 'POST',
+        body: { counts, float_handed, note },
       }),
     onSettled: () => invalidateMoney(client),
   })

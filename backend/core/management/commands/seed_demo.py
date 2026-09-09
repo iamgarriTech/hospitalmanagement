@@ -19,6 +19,14 @@ from billing.models import PaymentMethod, Service, ServiceCategory, ServicePrice
 from facilities.models import Clinic, Department, Facility, Organization
 from imaging.models import ImagingModality, ImagingProcedure
 from inpatient.models import Bed, EscalationThreshold, Room, Ward
+from inventory.models import (
+    InventoryItem,
+    ItemCategory,
+    StockRecord,
+    Store,
+    Supplier,
+)
+from inventory.stock import receive as receive_stock
 from laboratory.models import LabTest, LabTestCategory, LabTestParameter, ReferenceRange
 from patients.models import NumberSequence
 from pharmacy.models import (
@@ -69,6 +77,91 @@ WARDS = [
     ("Female Medical Ward", "FMW", "female", "BED-GEN", ["R1", "R2", "R3"], 4),
     ("Children's Ward", "CW", "paediatric", "BED-GEN", ["R1", "R2"], 4),
     ("Intensive Care Unit", "ICU", "intensive", "BED-ICU", ["B1"], 4),
+]
+
+# The stores and what they carry. A ward cupboard and the main store are
+# different places holding different amounts of the same thing — which is the
+# whole point of AC-144, and a demo with one store cannot show it.
+STORES = [
+    ("Main store", "MAIN-ST", "main", None, "50000.00", 90),
+    ("Theatre store", "THEATRE-ST", "theatre", None, "10000.00", 60),
+    ("Male Medical Ward store", "MMW-ST", "ward", "MMW", "2000.00", 30),
+    ("Laboratory store", "LAB-ST", "laboratory", None, "10000.00", 45),
+]
+
+ITEM_CATEGORIES = [
+    ("Consumables", 1), ("Linen", 2), ("Laboratory reagents", 3), ("Equipment", 4),
+]
+
+# (category, name, code, unit, reorder, controlled, tracks_expiry)
+STOCK_ITEMS = [
+    ("Consumables", "Examination gloves, medium", "GLV-M", "box of 100", 20, False, True),
+    ("Consumables", "Examination gloves, large", "GLV-L", "box of 100", 15, False, True),
+    ("Consumables", "Surgical gloves 7.5, sterile", "GLV-S75", "pair", 60, False, True),
+    ("Consumables", "Syringe 5 mL with needle", "SYR-5", "box of 100", 25, False, True),
+    ("Consumables", "Cannula 20G", "CAN-20", "each", 100, False, True),
+    ("Consumables", "Giving set, IV", "IVS-1", "each", 80, False, True),
+    ("Consumables", "Gauze swab 10x10, sterile", "GZE-10", "pack of 5", 120, False, True),
+    ("Consumables", "Methylated spirit 500 mL", "SPT-500", "bottle", 10, True, True),
+    ("Consumables", "Chlorhexidine 500 mL", "CHX-500", "bottle", 8, False, True),
+    ("Consumables", "Sharps container 5 L", "SHP-5", "each", 12, True, False),
+    ("Linen", "Bed sheet, single", "LIN-SHT", "each", 40, False, False),
+    ("Linen", "Draw sheet", "LIN-DRW", "each", 40, False, False),
+    ("Linen", "Theatre gown, reusable", "LIN-GWN", "each", 20, False, False),
+    ("Laboratory reagents", "FBC reagent pack", "RGT-FBC", "pack", 4, False, True),
+    ("Laboratory reagents", "Malaria RDT cassette", "RGT-MRDT", "box of 25", 6, False, True),
+    ("Laboratory reagents", "Blood collection tube, EDTA", "TUB-EDTA", "box of 100", 10, False, True),
+    ("Equipment", "Bed pan, stainless", "BDP-1", "each", 4, False, False),
+    ("Equipment", "Digital thermometer", "THM-1", "each", 6, False, False),
+    ("Equipment", "Blood pressure cuff, adult", "BPC-A", "each", 4, False, False),
+]
+
+# What each store carries, and roughly how much — deliberately including a
+# store that is short and a lot that is close to expiry, because a stores
+# screen with nothing wrong on it demonstrates nothing.
+# (store, item, reorder, quantity, days to expiry or None)
+STORE_STOCK = [
+    ("MAIN-ST", "GLV-M", 20, 140, 420),
+    ("MAIN-ST", "GLV-M", 20, 25, 40),
+    ("MAIN-ST", "GLV-L", 15, 90, 400),
+    ("MAIN-ST", "GLV-S75", 60, 400, 500),
+    ("MAIN-ST", "SYR-5", 25, 180, 600),
+    ("MAIN-ST", "CAN-20", 100, 900, 540),
+    ("MAIN-ST", "IVS-1", 80, 600, 480),
+    ("MAIN-ST", "GZE-10", 120, 700, 700),
+    ("MAIN-ST", "SPT-500", 10, 48, 300),
+    ("MAIN-ST", "CHX-500", 8, 30, 21),
+    ("MAIN-ST", "SHP-5", 12, 40, None),
+    ("MAIN-ST", "LIN-SHT", 40, 220, None),
+    ("MAIN-ST", "LIN-DRW", 40, 180, None),
+    ("MAIN-ST", "BDP-1", 4, 14, None),
+    ("MAIN-ST", "THM-1", 6, 9, None),
+    ("MAIN-ST", "BPC-A", 4, 7, None),
+    ("THEATRE-ST", "GLV-S75", 40, 120, 500),
+    ("THEATRE-ST", "GZE-10", 60, 55, 700),
+    ("THEATRE-ST", "CHX-500", 6, 4, 21),
+    ("THEATRE-ST", "LIN-GWN", 20, 26, None),
+    ("MMW-ST", "GLV-M", 8, 6, 420),
+    ("MMW-ST", "SYR-5", 6, 11, 600),
+    ("MMW-ST", "CAN-20", 30, 22, 540),
+    ("MMW-ST", "LIN-SHT", 12, 30, None),
+    ("MMW-ST", "BDP-1", 2, 3, None),
+    ("LAB-ST", "RGT-FBC", 4, 9, 120),
+    ("LAB-ST", "RGT-MRDT", 6, 5, 14),
+    ("LAB-ST", "TUB-EDTA", 10, 24, 260),
+    ("LAB-ST", "GLV-M", 6, 9, 420),
+]
+
+# Who the hospital buys from. One suspended, so the refusal is demonstrable.
+SUPPLIERS = [
+    ("Lagos Medical Supplies", "LMS", "Bode Adeyinka", "+234 802 100 2000",
+     "orders@lagosmedical.example", 30, True, ""),
+    ("Ilesa Surgical Depot", "ISD", "Funmi Adebayo", "+234 803 400 5000",
+     "sales@ilesasurgical.example", 45, True, ""),
+    ("Naija Diagnostics Ltd", "NDL", "Emeka Obi", "+234 805 700 8000",
+     "supply@naijadiagnostics.example", 14, True, ""),
+    ("Cheap Imports Ltd", "CIL", "", "", "", 30, False,
+     "Two deliveries of expired stock in 2026. Suspended pending review."),
 ]
 
 # When an observation on a ward has to be escalated. Per ward, because the same
@@ -221,6 +314,10 @@ ROLES = {
             "billing.view_payment", "billing.add_payment",
             "billing.view_cashiersession", "billing.add_cashiersession",
             "billing.change_cashiersession", "billing.view_paymentmethod",
+            # Taking over a colleague's till mid-shift. Deliberately not
+            # adjust_cashiersession: the person who counted it wrong does not
+            # get to restate it.
+            "billing.receive_till",
         ],
     },
     "Accountant": {
@@ -233,6 +330,48 @@ ROLES = {
             # the billing desk that raised the claim.
             "insurance.view_*", "insurance.record_claim_outcome",
             "insurance.add_providerpayment", "insurance.write_off_claim_shortfall",
+        ],
+    },
+    # --- stores ---------------------------------------------------------------
+    "Storekeeper": {
+        "permissions": [
+            "facilities.view_facility",
+            "inventory.view_*",
+            "inventory.receive_stock", "inventory.issue_stock",
+            "inventory.transfer_stock", "inventory.adjust_stock",
+            "inventory.add_stockrecord", "inventory.change_stockrecord",
+            # Deliberately not authorise_stock_adjustment: a second signature
+            # is worth nothing if the same person holds both verbs.
+        ],
+    },
+    "Stores Manager": {
+        "permissions": [
+            "facilities.view_facility",
+            "inventory.*",
+            "billing.view_service",
+        ],
+    },
+    "Buyer": {
+        "permissions": [
+            "facilities.view_facility",
+            "inventory.view_*",
+            "inventory.add_purchaserequest", "inventory.change_purchaserequest",
+            "inventory.add_purchaserequestline",
+            "inventory.raise_purchase_order", "inventory.receive_goods",
+            "inventory.add_supplierinvoice",
+            "inventory.receive_stock", "inventory.add_stockrecord",
+            # Deliberately not approve_purchase_request or
+            # approve_supplier_invoice: asking for money and releasing it are
+            # different jobs, and one person holding both is no control at all.
+        ],
+    },
+    "Purchasing Approver": {
+        "permissions": [
+            "facilities.view_facility",
+            "inventory.view_*",
+            "inventory.approve_purchase_request",
+            "inventory.approve_supplier_invoice",
+            "inventory.add_supplier", "inventory.change_supplier",
         ],
     },
     # --- insurance ------------------------------------------------------------
@@ -354,11 +493,18 @@ STAFF = [
     ("labtech@demo.test", "Grace Ojo", "Laboratory Technician", "MAIN"),
     ("pharmacist@demo.test", "Yemi Adeyemi", "Pharmacist", "MAIN"),
     ("cashier@demo.test", "Blessing Uche", "Cashier", "MAIN"),
+    # A second cashier, because a till handover needs two real people and a
+    # demo that cannot show one cannot show the control that matters.
+    ("cashier2@demo.test", "Adaeze Okonkwo", "Cashier", "MAIN"),
     ("accounts@demo.test", "Femi Balogun", "Accountant", "MAIN"),
     ("insurance@demo.test", "Tolu Odukoya", "Insurance Officer", "MAIN"),
     ("wardnurse@demo.test", "Amaka Nwachukwu", "Ward Nurse", "MAIN"),
     ("warddoctor@demo.test", "Kolawole Ajayi", "Ward Doctor", "MAIN"),
     ("wardmanager@demo.test", "Ngozi Okafor", "Ward Manager", "MAIN"),
+    ("stores@demo.test", "Danladi Musa", "Storekeeper", "MAIN"),
+    ("storesmgr@demo.test", "Halima Yusuf", "Stores Manager", "MAIN"),
+    ("buyer@demo.test", "Chika Eze", "Buyer", "MAIN"),
+    ("purchasing@demo.test", "Bola Sanni", "Purchasing Approver", "MAIN"),
     ("radiographer@demo.test", "Yemisi Oladele", "Radiographer", "MAIN"),
     ("radiologist@demo.test", "Tayo Bankole", "Radiologist", "MAIN"),
     ("imgregistrar@demo.test", "Uchenna Obi", "Imaging Registrar", "MAIN"),
@@ -738,6 +884,76 @@ class Command(BaseCommand):
                     },
                 )
 
+        # --- stores and stock ------------------------------------------------
+        item_categories = {}
+        for name, order in ITEM_CATEGORIES:
+            category, _ = ItemCategory.objects.update_or_create(
+                name=name, defaults={"display_order": order}
+            )
+            item_categories[name] = category
+
+        stock_items = {}
+        for (category_name, name, code, unit, reorder, controlled,
+             tracks_expiry) in STOCK_ITEMS:
+            item, _ = InventoryItem.objects.update_or_create(
+                code=code,
+                defaults={
+                    "category": item_categories[category_name],
+                    "name": name,
+                    "unit_of_issue": unit,
+                    "default_reorder_level": reorder,
+                    "is_controlled": controlled,
+                    "tracks_expiry": tracks_expiry,
+                },
+            )
+            stock_items[code] = item
+
+        stores = {}
+        for name, code, kind, ward_code, limit, horizon in STORES:
+            store, _ = Store.objects.update_or_create(
+                facility=facilities["MAIN"], code=code,
+                defaults={
+                    "name": name,
+                    "kind": kind,
+                    "ward": wards.get(ward_code) if ward_code else None,
+                    "adjustment_authorisation_limit": Decimal(limit),
+                    "expiry_horizon_days": horizon,
+                },
+            )
+            stores[code] = store
+
+        today = timezone.localdate()
+        storekeeper = (
+            User.objects.filter(email="stores@demo.test").first()
+            or self._bootstrap_user()
+        )
+        for store_code, item_code, reorder, quantity, days in STORE_STOCK:
+            record, _ = StockRecord.objects.update_or_create(
+                store=stores[store_code], item=stock_items[item_code],
+                defaults={"reorder_level": reorder},
+            )
+            expiry = today + timedelta(days=days) if days is not None else None
+            lot_number = f"{item_code}-{days or 'NA'}"
+            if record.lots.filter(lot_number=lot_number).exists():
+                continue
+            receive_stock(
+                record=record, quantity=quantity, actor=storekeeper,
+                lot_number=lot_number, expiry_date=expiry,
+                unit_cost=Decimal("500.00"),
+                reason="Opening stock, demo data",
+            )
+
+        for (name, code, contact, phone, email, terms, approved,
+             note) in SUPPLIERS:
+            Supplier.objects.update_or_create(
+                code=code,
+                defaults={
+                    "name": name, "contact_name": contact, "phone": phone,
+                    "email": email, "payment_terms_days": terms,
+                    "is_approved": approved, "approval_note": note,
+                },
+            )
+
         # --- imaging catalogue -----------------------------------------------
         modalities = {}
         for name, code, order in MODALITIES:
@@ -792,6 +1008,10 @@ class Command(BaseCommand):
             ("imaging procedures", ImagingProcedure.objects.count()),
             ("medications", Medication.objects.count()),
             ("stock batches", StockBatch.objects.count()),
+            ("suppliers", Supplier.objects.count()),
+            ("stores", Store.objects.count()),
+            ("inventory items", InventoryItem.objects.count()),
+            ("stocked lines", StockRecord.objects.count()),
             ("wards", Ward.objects.count()),
             ("beds", Bed.objects.count()),
             ("escalation thresholds", EscalationThreshold.objects.count()),

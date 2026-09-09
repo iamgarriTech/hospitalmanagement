@@ -9,11 +9,23 @@ from datetime import timedelta
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connections, transaction
+from django.db import (
+    IntegrityError,
+    OperationalError,
+    connections,
+    transaction,
+)
 from django.db.backends.postgresql.psycopg_any import DateTimeTZRange
 from django.utils import timezone
 
-from inpatient.models import Admission, Bed, BedOccupancy, Room, Ward
+from inpatient.models import (
+    Admission,
+    Bed,
+    BedOccupancy,
+    BedTaken,
+    Room,
+    Ward,
+)
 from patients.models import Patient
 
 
@@ -62,6 +74,12 @@ def test_two_patients_cannot_occupy_one_bed_under_concurrency(
     Twelve threads admit different patients to the same bed at the same instant.
     The database allows exactly one. This is not checked in Python anywhere: a
     read-then-write check would let two through under precisely this load.
+
+    The eleven refusals also have to be *readable*. Under this much contention
+    Postgres sometimes reports a deadlock while checking the exclusion
+    constraint rather than an overlap, and an untranslated deadlock reaches a
+    nurse as a 500 — the invariant held and the screen said nothing useful, so
+    the ward has no idea whether the patient is admitted.
     """
     bed = beds[0]
     patients = [
@@ -80,22 +98,36 @@ def test_two_patients_cannot_occupy_one_bed_under_concurrency(
         for patient in patients
     ]
 
+    refusals = []
+
     def admit(record):
         try:
             with transaction.atomic():
                 BedOccupancy.allocate(bed=bed, admission=record, actor=ward_doctor)
             return "allocated"
-        except IntegrityError:
+        except BedTaken as refusal:
+            refusals.append(str(refusal))
             return "refused"
+        except (IntegrityError, OperationalError) as leaked:
+            # Neither should reach a caller: `allocate` translates both into
+            # BedTaken precisely so a ward never sees one.
+            refusals.append(f"UNTRANSLATED: {type(leaked).__name__}")
+            return "leaked"
         finally:
             connections.close_all()
 
     with ThreadPoolExecutor(max_workers=12) as pool:
         outcomes = list(pool.map(admit, admissions))
 
+    assert outcomes.count("leaked") == 0, refusals
     assert outcomes.count("allocated") == 1, outcomes
     assert outcomes.count("refused") == 11
     assert BedOccupancy.objects.filter(bed=bed, period__endswith__isnull=True).count() == 1
+
+    # And every refusal names the bed, so the ward knows which one to stop
+    # trying. "Database error" would be true and useless.
+    assert len(refusals) == 11
+    assert all(str(bed) in message for message in refusals), refusals
 
 
 @pytest.mark.django_db

@@ -169,3 +169,11 @@ export const ImagingIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M12 3v18M8 8.5c1.6 1.2 1.6 6.8 0 8M16 8.5c-1.6 1.2-1.6 6.8 0 8" />
   </Icon>
 )
+
+/** A box on a shelf. Stores. */
+export const StoresIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" />
+    <path d="M3 7.5 12 12l9-4.5M12 12v9" />
+  </Icon>
+)

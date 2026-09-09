@@ -20,9 +20,30 @@ from django.conf import settings
 from django.contrib.postgres.constraints import ExclusionConstraint
 from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import IntegrityError, OperationalError, models, transaction
 from django.db.backends.postgresql.psycopg_any import DateTimeTZRange
 from django.utils import timezone
+
+
+class BedTaken(ValidationError):
+    """Somebody else got the bed. A conflict, not a malformed request.
+
+    Its own type so the view can answer 409 rather than 400: "that bed is
+    occupied" is a race the ward resolves by picking another bed, and a 400
+    would tell them they sent something wrong.
+    """
+
+
+def _is_deadlock(error):
+    """Postgres 40P01, as psycopg reports it through Django.
+
+    Checked rather than assumed: an OperationalError can also be a dropped
+    connection or a statement timeout, and swallowing those as "bed taken"
+    would turn an infrastructure failure into a clinical message that is not
+    true.
+    """
+    sqlstate = getattr(getattr(error, "__cause__", None), "sqlstate", None)
+    return sqlstate == "40P01"
 
 
 class Ward(models.Model):
@@ -315,13 +336,35 @@ class BedOccupancy(models.Model):
                 + "."
             )
         started = at or timezone.now()
-        return cls.objects.create(
-            bed=bed,
-            admission=admission,
-            patient=admission.patient,
-            period=DateTimeTZRange(started, None),
-            allocated_by=actor,
-        )
+        try:
+            # A savepoint, so a refusal from the database does not poison the
+            # caller's transaction — the handler below has to be able to query.
+            with transaction.atomic():
+                return cls.objects.create(
+                    bed=bed,
+                    admission=admission,
+                    patient=admission.patient,
+                    period=DateTimeTZRange(started, None),
+                    allocated_by=actor,
+                )
+        except (IntegrityError, OperationalError) as refusal:
+            # Two shapes, one meaning. The exclusion constraint reports an
+            # overlap; under real contention — a dozen nurses on one bed at
+            # handover — Postgres may instead pick a deadlock while checking
+            # that same constraint, which arrives as OperationalError. Both mean
+            # somebody else got the bed, and a nurse must see that sentence
+            # rather than a 500.
+            if isinstance(refusal, OperationalError) and not _is_deadlock(refusal):
+                raise
+            occupant = cls.objects.filter(
+                bed=bed, period__endswith__isnull=True
+            ).select_related("patient").first()
+            raise BedTaken(
+                f"{bed} is already occupied"
+                + (f" by {occupant.patient.full_name}." if occupant else
+                   " — another allocation reached it first.")
+            )
+
 
     @transaction.atomic
     def close(self, *, actor=None, at=None, reason=""):

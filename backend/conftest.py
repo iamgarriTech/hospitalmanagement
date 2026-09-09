@@ -688,7 +688,7 @@ def cashier(db, facility_a):
         "billing.view_invoice", "billing.change_invoice",
         "billing.view_payment", "billing.add_payment",
         "billing.view_cashiersession", "billing.add_cashiersession",
-        "billing.change_cashiersession",
+        "billing.change_cashiersession", "billing.receive_till",
     )
     role.discount_limit = "500.00"
     role.save(update_fields=["discount_limit"])
@@ -714,6 +714,7 @@ def accountant(db, facility_a):
         "billing.view_payment", "billing.add_payment",
         "billing.view_cashiersession", "billing.add_cashiersession",
         "billing.change_cashiersession", "billing.reconcile_cashiersession",
+        "billing.adjust_cashiersession",
     )
     role.discount_limit = "100000.00"
     role.save(update_fields=["discount_limit"])
@@ -722,8 +723,22 @@ def accountant(db, facility_a):
 
 
 @pytest.fixture
+def relief_cashier(db, cashier, facility_a):
+    """The cashier coming on shift. Same role, deliberately a second person."""
+    user = User.objects.create_user("relief@example.test", "Ngozi Relief", PASSWORD)
+    role = RoleAssignment.objects.get(user=cashier).role
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
 def as_cashier(cashier):
     return _client_for(cashier)
+
+
+@pytest.fixture
+def as_relief_cashier(relief_cashier):
+    return _client_for(relief_cashier)
 
 
 @pytest.fixture
@@ -1258,4 +1273,227 @@ def drug_chart(inpatient_prescription, admission, ward_doctor):
     return schedule_doses(
         prescription_item=inpatient_prescription, admission=admission,
         actor=ward_doctor, start=start,
+    )
+
+
+# --- stores and stock -------------------------------------------------------
+
+@pytest.fixture
+def stores(db, facility_a, facility_b):
+    from decimal import Decimal
+
+    from inventory.models import Store
+
+    # Decimal, not a string: a string assigned to a DecimalField stays a string
+    # on the in-memory instance, and the comparison against it raises rather
+    # than failing an assertion, which reads like a code defect and is not one.
+    return {
+        "main": Store.objects.create(
+            facility=facility_a, name="Main store", code="MAIN-ST",
+            kind=Store.MAIN, adjustment_authorisation_limit=Decimal("10000.00"),
+        ),
+        "theatre": Store.objects.create(
+            facility=facility_a, name="Theatre store", code="THEATRE-ST",
+            kind=Store.THEATRE, adjustment_authorisation_limit=Decimal("0.00"),
+        ),
+        "other_facility": Store.objects.create(
+            facility=facility_b, name="Abuja main store", code="MAIN-ST",
+            kind=Store.MAIN,
+        ),
+    }
+
+
+@pytest.fixture
+def stock_items(db):
+    from inventory.models import InventoryItem, ItemCategory
+
+    consumables = ItemCategory.objects.create(name="Consumables", display_order=1)
+    equipment = ItemCategory.objects.create(name="Equipment", display_order=2)
+    return {
+        "gloves": InventoryItem.objects.create(
+            category=consumables, name="Examination gloves, medium",
+            code="GLV-M", unit_of_issue="box of 100", default_reorder_level=20,
+        ),
+        "spirit": InventoryItem.objects.create(
+            category=consumables, name="Methylated spirit 500 mL",
+            code="SPT-500", unit_of_issue="bottle", default_reorder_level=10,
+            is_controlled=True,
+        ),
+        "bedpan": InventoryItem.objects.create(
+            category=equipment, name="Bed pan, stainless", code="BDP-1",
+            unit_of_issue="each", default_reorder_level=4, tracks_expiry=False,
+        ),
+    }
+
+
+@pytest.fixture
+def gloves_in_main(stores, stock_items, storekeeper):
+    """A stocked record with two lots, the older expiring first."""
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from django.utils import timezone
+
+    from inventory.models import StockRecord
+    from inventory.stock import receive
+
+    record = StockRecord.objects.create(
+        store=stores["main"], item=stock_items["gloves"], reorder_level=20
+    )
+    today = timezone.localdate()
+    receive(record=record, quantity=30, actor=storekeeper, lot_number="L-OLD",
+            expiry_date=today + timedelta(days=45), unit_cost=Decimal("1500.00"))
+    receive(record=record, quantity=50, actor=storekeeper, lot_number="L-NEW",
+            expiry_date=today + timedelta(days=400), unit_cost=Decimal("1600.00"))
+    return record
+
+
+@pytest.fixture
+def storekeeper(db, facility_a):
+    """Runs the store: receives, issues, transfers, adjusts. Cannot authorise."""
+    user = User.objects.create_user("stores@example.test", "Danladi Musa", PASSWORD)
+    role = _role(
+        "Storekeeper",
+        "facilities.view_facility",
+        "inventory.view_store", "inventory.view_inventoryitem",
+        "inventory.view_itemcategory", "inventory.view_stockrecord",
+        "inventory.view_stocklot", "inventory.view_stockmovement",
+        "inventory.view_stockadjustment", "inventory.view_stocktransfer",
+        "inventory.receive_stock", "inventory.issue_stock",
+        "inventory.transfer_stock", "inventory.adjust_stock",
+        "inventory.add_stockrecord", "inventory.change_stockrecord",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def stores_manager(db, facility_a):
+    """Authorises what the storekeeper cannot authorise for themselves."""
+    user = User.objects.create_user("storesmgr@example.test", "Halima Yusuf", PASSWORD)
+    role = _role(
+        "Stores Manager",
+        "facilities.view_facility",
+        "inventory.view_store", "inventory.add_store", "inventory.change_store",
+        "inventory.view_inventoryitem", "inventory.add_inventoryitem",
+        "inventory.change_inventoryitem",
+        "inventory.view_itemcategory", "inventory.add_itemcategory",
+        "inventory.view_stockrecord", "inventory.add_stockrecord",
+        "inventory.change_stockrecord",
+        "inventory.view_stocklot", "inventory.view_stockmovement",
+        "inventory.view_stockadjustment", "inventory.view_stocktransfer",
+        "inventory.receive_stock", "inventory.issue_stock",
+        "inventory.transfer_stock", "inventory.adjust_stock",
+        "inventory.authorise_stock_adjustment",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_storekeeper(storekeeper):
+    return _client_for(storekeeper)
+
+
+@pytest.fixture
+def as_stores_manager(stores_manager):
+    return _client_for(stores_manager)
+
+
+# --- procurement ------------------------------------------------------------
+
+@pytest.fixture
+def supplier(db):
+    from inventory.models import Supplier
+
+    return Supplier.objects.create(
+        name="Lagos Medical Supplies", code="LMS",
+        contact_name="Bode Adeyinka", phone="+234 802 000 0000",
+        payment_terms_days=30,
+    )
+
+
+@pytest.fixture
+def suspended_supplier(db):
+    from inventory.models import Supplier
+
+    return Supplier.objects.create(
+        name="Cheap Imports Ltd", code="CIL", is_approved=False,
+        approval_note="Two deliveries of expired stock in 2026.",
+    )
+
+
+@pytest.fixture
+def purchase_buyer(db, facility_a):
+    """Raises orders and receives goods. Cannot approve a request."""
+    user = User.objects.create_user("buyer@example.test", "Chika Eze", PASSWORD)
+    # Spelled out rather than wildcarded: a test role should say exactly what it
+    # holds, or a permission test proves less than it looks like it does.
+    role = _role(
+        "Buyer",
+        "facilities.view_facility",
+        "inventory.view_store", "inventory.view_inventoryitem",
+        "inventory.view_stockrecord", "inventory.view_stocklot",
+        "inventory.view_stockmovement",
+        "inventory.view_supplier",
+        "inventory.view_purchaserequest", "inventory.view_purchaserequestline",
+        "inventory.view_purchaseorder", "inventory.view_purchaseorderline",
+        "inventory.view_goodsreceipt", "inventory.view_goodsreceiptline",
+        "inventory.view_supplierinvoice",
+        "inventory.add_purchaserequest", "inventory.change_purchaserequest",
+        "inventory.add_purchaserequestline",
+        "inventory.raise_purchase_order", "inventory.receive_goods",
+        "inventory.add_supplierinvoice",
+        "inventory.receive_stock", "inventory.add_stockrecord",
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def purchase_approver(db, facility_a):
+    """Approves requests and releases supplier invoices for payment."""
+    user = User.objects.create_user("approver@example.test", "Bola Sanni", PASSWORD)
+    role = _role(
+        "Purchasing Approver",
+        "facilities.view_facility",
+        "inventory.view_store", "inventory.view_inventoryitem",
+        "inventory.view_stockrecord", "inventory.view_stockmovement",
+        "inventory.view_supplier",
+        "inventory.view_purchaserequest", "inventory.view_purchaserequestline",
+        "inventory.view_purchaseorder", "inventory.view_purchaseorderline",
+        "inventory.view_goodsreceipt", "inventory.view_supplierinvoice",
+        "inventory.approve_purchase_request",
+        "inventory.approve_supplier_invoice",
+        "inventory.add_supplier", "inventory.change_supplier",
+        # Deliberately not raise_purchase_order or receive_goods: approving the
+        # spend and committing it are different jobs.
+    )
+    RoleAssignment.objects.create(user=user, role=role, facility=facility_a)
+    return user
+
+
+@pytest.fixture
+def as_buyer(purchase_buyer):
+    return _client_for(purchase_buyer)
+
+
+@pytest.fixture
+def as_approver(purchase_approver):
+    return _client_for(purchase_approver)
+
+
+@pytest.fixture
+def purchase_request(db, stores, stock_items, purchase_buyer):
+    """A request worth more than the main store's authorisation limit."""
+    from inventory.procurement import new_request
+
+    return new_request(
+        store=stores["main"],
+        justification="Theatre list next week and the shelf is empty.",
+        actor=purchase_buyer,
+        lines=[
+            {"item": stock_items["gloves"], "quantity": 100, "cost": "1500.00"},
+            {"item": stock_items["spirit"], "quantity": 40, "cost": "800.00"},
+        ],
     )

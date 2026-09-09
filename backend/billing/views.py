@@ -25,6 +25,7 @@ from .models import (
 from .serializers import (
     CashierSessionSerializer,
     DiscountSerializer,
+    HandoverSerializer,
     InvoiceSerializer,
     PaymentMethodSerializer,
     PaymentSerializer,
@@ -34,8 +35,20 @@ from .serializers import (
     ServiceCategorySerializer,
     ServicePriceSerializer,
     ServiceSerializer,
+    SessionAdjustmentSerializer,
+    TillHandoverSerializer,
     VoidSerializer,
 )
+from .till import (
+    UnexplainedVariance,
+    hand_over_till,
+    reconcile_session,
+    record_counts,
+)
+
+
+class _TillClosed(Exception):
+    """No open session for this cashier at this facility, checked under a lock."""
 
 
 class ServiceCategoryViewSet(viewsets.ModelViewSet):
@@ -302,12 +315,17 @@ class CashierSessionViewSet(FacilityScoped, viewsets.ModelViewSet):
         "create": "billing.add_cashiersession",
         "close": "billing.change_cashiersession",
         "reconcile": "billing.reconcile_cashiersession",
+        "adjust": "billing.adjust_cashiersession",
+        "handover": "billing.receive_till",
     }
 
     def get_queryset(self):
         return self._scope(
             CashierSession.objects.select_related("cashier", "facility")
-            .prefetch_related("payments")
+            .prefetch_related(
+                "payments", "counts__method", "adjustments__raised_by",
+                "adjustments__method",
+            )
         )
 
     def facility_for_permission(self, request):
@@ -338,12 +356,16 @@ class CashierSessionViewSet(FacilityScoped, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def close(self, request, pk=None):
         session = self.get_object()
-        if session.status != CashierSession.OPEN:
-            return Response({"detail": f"Session is already {session.status}."},
-                            status=http.HTTP_409_CONFLICT)
-        session.status = CashierSession.CLOSED
-        session.closed_at = timezone.now()
-        session.save(update_fields=["status", "closed_at"])
+        with transaction.atomic():
+            # The other half of the payment race: whichever of the two takes the
+            # lock first wins cleanly, and the loser sees a settled status.
+            session = CashierSession.objects.select_for_update().get(pk=session.pk)
+            if session.status != CashierSession.OPEN:
+                return Response({"detail": f"Session is already {session.status}."},
+                                status=http.HTTP_409_CONFLICT)
+            session.status = CashierSession.CLOSED
+            session.closed_at = timezone.now()
+            session.save(update_fields=["status", "closed_at"])
         AuditEvent.record(
             action="cashier_session.closed", actor=request.user, resource=session,
             facility=session.facility,
@@ -358,35 +380,141 @@ class CashierSessionViewSet(FacilityScoped, viewsets.ModelViewSet):
         session = self.get_object()
         serializer = ReconcileSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if session.status == CashierSession.RECONCILED:
+            # Telling somebody to close a session they have already signed off
+            # sends them looking for a button that is not there.
+            return Response(
+                {"detail": "This session is already signed off and its money is "
+                           "frozen. Record a correction against it instead."},
+                status=http.HTTP_409_CONFLICT,
+            )
         if session.status != CashierSession.CLOSED:
-            return Response({"detail": "Close the session before reconciling it."},
+            return Response({"detail": "Close the session before signing it off."},
                             status=http.HTTP_409_CONFLICT)
 
-        expected = session.expected_total()
-        counted = serializer.validated_data["counted_total"]
-        variance = counted - expected
-        if variance != 0 and not serializer.validated_data["variance_note"]:
-            return Response(
-                {"variance_note": [f"Counted {counted} against expected {expected}. "
-                                   f"A variance of {variance} must be explained."]},
-                status=http.HTTP_400_BAD_REQUEST,
-            )
+        try:
+            with transaction.atomic():
+                session = CashierSession.objects.select_for_update().get(pk=session.pk)
+                record_counts(session, serializer.validated_data["counts"])
+                problems = session.unexplained_variances()
+                if problems:
+                    # Refusing is the point of the endpoint, so it must happen
+                    # before anything is committed.
+                    raise UnexplainedVariance(problems)
+                reconcile_session(
+                    session,
+                    by=request.user,
+                    note=serializer.validated_data["variance_note"],
+                )
+        except UnexplainedVariance as refusal:
+            return Response({"unexplained": refusal.problems},
+                            status=http.HTTP_400_BAD_REQUEST)
 
-        session.status = CashierSession.RECONCILED
-        session.reconciled_at = timezone.now()
-        session.reconciled_by = request.user
-        session.counted_total = counted
-        session.variance_note = serializer.validated_data["variance_note"]
-        session.save(update_fields=["status", "reconciled_at", "reconciled_by",
-                                    "counted_total", "variance_note"])
         AuditEvent.record(
             action="cashier_session.reconciled", actor=request.user, resource=session,
             facility=session.facility,
-            after={"expected": str(expected), "counted": str(counted),
-                   "variance": str(variance)},
+            after={"expected": str(session.expected_total()),
+                   "counted": str(session.counted_total),
+                   "net_variance": str(session.net_variance),
+                   "by_method": session.variance_summary_for_audit()},
             reason=session.variance_note, request=request,
         )
         return Response(self.get_serializer(session).data)
+
+    @extend_schema(request=SessionAdjustmentSerializer,
+                   responses={201: SessionAdjustmentSerializer},
+                   summary="Correct a reconciled session with a new entry")
+    @action(detail=True, methods=["post"])
+    def adjust(self, request, pk=None):
+        """AC-141. The reconciled session is not touched; this sits beside it."""
+        session = self.get_object()
+        if session.status != CashierSession.RECONCILED:
+            return Response(
+                {"detail": "Only a reconciled session is corrected by adjustment. "
+                           "An open or closed session is reconciled instead."},
+                status=http.HTTP_409_CONFLICT,
+            )
+        serializer = SessionAdjustmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        adjustment = serializer.save(session=session, raised_by=request.user)
+        AuditEvent.record(
+            action="cashier_session.adjusted", actor=request.user, resource=adjustment,
+            facility=session.facility,
+            after={"session": str(session.pk), "kind": adjustment.kind,
+                   "amount": str(adjustment.amount)},
+            reason=adjustment.reason, request=request,
+        )
+        return Response(SessionAdjustmentSerializer(adjustment).data,
+                        status=http.HTTP_201_CREATED)
+
+    @extend_schema(request=HandoverSerializer, responses={201: TillHandoverSerializer},
+                   summary="Hand the till to the cashier taking over")
+    @action(detail=True, methods=["post"], permission_classes=[HasPermission])
+    def handover(self, request, pk=None):
+        """AC-142. Called by the *incoming* cashier, so both names are real.
+
+        The outgoing cashier cannot name who took the money over: a signature
+        one person supplies for two people is not a second signature. The
+        person receiving the till calls this, and their session is the one that
+        opens.
+        """
+        session = self.get_object()
+        serializer = HandoverSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if session.status != CashierSession.OPEN:
+            return Response({"detail": f"That till is already {session.status}."},
+                            status=http.HTTP_409_CONFLICT)
+        if session.cashier_id == request.user.pk:
+            return Response(
+                {"detail": "A till is handed to somebody else. Close your own "
+                           "session instead."},
+                status=http.HTTP_400_BAD_REQUEST,
+            )
+        if CashierSession.objects.filter(
+            cashier=request.user, facility=session.facility,
+            status=CashierSession.OPEN,
+        ).exists():
+            return Response(
+                {"detail": "You already have an open session at this facility. "
+                           "Close it before receiving another till."},
+                status=http.HTTP_409_CONFLICT,
+            )
+
+        try:
+            with transaction.atomic():
+                session = CashierSession.objects.select_for_update().get(pk=session.pk)
+                if session.status != CashierSession.OPEN:
+                    # Re-read under the lock: the outgoing cashier may have
+                    # closed it while this request was in flight.
+                    raise _TillClosed(f"That till is already {session.status}.")
+                record_counts(session, serializer.validated_data["counts"])
+                problems = session.unexplained_variances()
+                if problems:
+                    raise UnexplainedVariance(problems)
+                handover = hand_over_till(
+                    session,
+                    to_user=request.user,
+                    float_handed=serializer.validated_data["float_handed"],
+                    note=serializer.validated_data["note"],
+                )
+        except UnexplainedVariance as refusal:
+            return Response({"unexplained": refusal.problems},
+                            status=http.HTTP_400_BAD_REQUEST)
+        except _TillClosed as closed:
+            return Response({"detail": str(closed)}, status=http.HTTP_409_CONFLICT)
+
+        AuditEvent.record(
+            action="cashier_session.handed_over", actor=request.user,
+            resource=handover, facility=session.facility,
+            after={"from_session": str(session.pk),
+                   "to_session": str(handover.to_session_id),
+                   "float_handed": str(handover.float_handed),
+                   "handed_by": session.cashier.email,
+                   "received_by": request.user.email},
+            reason=handover.note, request=request,
+        )
+        return Response(TillHandoverSerializer(handover).data,
+                        status=http.HTTP_201_CREATED)
 
 
 class PaymentViewSet(FacilityScoped, viewsets.ModelViewSet):
@@ -452,17 +580,17 @@ class PaymentViewSet(FacilityScoped, viewsets.ModelViewSet):
                 status=http.HTTP_400_BAD_REQUEST,
             )
 
-        session = CashierSession.objects.filter(
-            cashier=request.user, facility=invoice.facility, status=CashierSession.OPEN
-        ).first()
-        if session is None:
-            return Response(
-                {"detail": "Open a cashier session before taking payments."},
-                status=http.HTTP_409_CONFLICT,
-            )
-
         try:
             with transaction.atomic():
+                # Locked and re-read inside the transaction: a close running
+                # between the check and the insert would otherwise post money
+                # into a session somebody is already counting. Guarantee 5.
+                session = CashierSession.objects.select_for_update().filter(
+                    cashier=request.user, facility=invoice.facility,
+                    status=CashierSession.OPEN,
+                ).first()
+                if session is None:
+                    raise _TillClosed
                 payment = Payment.objects.create(
                     invoice=invoice, cashier_session=session, method=method,
                     amount=data["amount"], reference=data["reference"],
@@ -472,6 +600,11 @@ class PaymentViewSet(FacilityScoped, viewsets.ModelViewSet):
                 if invoice.balance <= 0 and invoice.status != Invoice.PAID:
                     invoice.status = Invoice.PAID
                     invoice.save(update_fields=["status"])
+        except _TillClosed:
+            return Response(
+                {"detail": "Open a cashier session before taking payments."},
+                status=http.HTTP_409_CONFLICT,
+            )
         except IntegrityError:
             # Lost a race on the same key; return the winner rather than erroring.
             payment = Payment.objects.get(idempotency_key=data["idempotency_key"])
@@ -550,25 +683,27 @@ class PaymentViewSet(FacilityScoped, viewsets.ModelViewSet):
                 status=http.HTTP_400_BAD_REQUEST,
             )
 
-        session = CashierSession.objects.filter(
-            cashier=request.user, facility=payment.invoice.facility,
-            status=CashierSession.OPEN,
-        ).first()
-        if session is None:
+        try:
+            with transaction.atomic():
+                session = CashierSession.objects.select_for_update().filter(
+                    cashier=request.user, facility=payment.invoice.facility,
+                    status=CashierSession.OPEN,
+                ).first()
+                if session is None:
+                    raise _TillClosed
+                refund = Refund.objects.create(
+                    payment=payment, amount=amount,
+                    reason=serializer.validated_data["reason"],
+                    cashier_session=session, issued_by=request.user,
+                )
+                invoice = payment.invoice
+                invoice.refresh_from_db()
+                if invoice.balance > 0 and invoice.status == Invoice.PAID:
+                    invoice.status = Invoice.FINALISED
+                    invoice.save(update_fields=["status"])
+        except _TillClosed:
             return Response({"detail": "Open a cashier session before issuing refunds."},
                             status=http.HTTP_409_CONFLICT)
-
-        with transaction.atomic():
-            refund = Refund.objects.create(
-                payment=payment, amount=amount,
-                reason=serializer.validated_data["reason"],
-                cashier_session=session, issued_by=request.user,
-            )
-            invoice = payment.invoice
-            invoice.refresh_from_db()
-            if invoice.balance > 0 and invoice.status == Invoice.PAID:
-                invoice.status = Invoice.FINALISED
-                invoice.save(update_fields=["status"])
 
         AuditEvent.record(
             action="payment.refunded", actor=request.user, resource=payment.invoice,

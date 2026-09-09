@@ -244,3 +244,16 @@ export function millilitres(value: number) {
 export function dayAndMonth(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
 }
+
+/**
+ * A date with its year. For an expiry the year is the whole point — "19 Oct"
+ * could be next month or three years away, and a storekeeper deciding what to
+ * pull off a shelf needs to know which.
+ */
+export function fullDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
