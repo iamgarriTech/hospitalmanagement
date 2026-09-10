@@ -219,3 +219,264 @@ class VisitStateChange(models.Model):
 
     def __str__(self):
         return f"{self.from_status} → {self.to_status}"
+
+
+# --- the emergency department -----------------------------------------------
+#
+# In this app rather than one of its own: an emergency attendance is a visit —
+# the patient arrives, waits, is seen, and leaves — and the queue, the state
+# machine and the clinic all already exist here. What the ED adds is a
+# severity that reorders the queue and an episode that has to end in exactly
+# one outcome.
+
+
+class TriageScale(models.Model):
+    """The severity scale this hospital triages on. AC-168.
+
+    Configurable because there is no single scale: Manchester, ESI, South
+    African and CTAS all differ in level count, colour and target time, and a
+    hospital's protocol is a fact about that hospital.
+
+    **Not clinically reviewed.** The levels a hospital seeds here are its own;
+    nothing in this software knows whether they are right.
+    """
+
+    facility = models.ForeignKey(
+        "facilities.Facility", on_delete=models.PROTECT, related_name="triage_scales"
+    )
+    name = models.CharField(max_length=80)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["facility", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["facility", "name"], name="one_triage_scale_name_per_facility"
+            ),
+            models.UniqueConstraint(
+                fields=["facility"], condition=models.Q(is_active=True),
+                name="one_active_triage_scale_per_facility",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.name} — {self.facility.code}"
+
+
+class TriageLevel(models.Model):
+    """One step on the scale. AC-168.
+
+    `rank` is what the queue sorts by, lowest first, so 1 is the sickest
+    whatever the hospital chooses to call it.
+    """
+
+    scale = models.ForeignKey(
+        TriageScale, on_delete=models.CASCADE, related_name="levels"
+    )
+    rank = models.PositiveSmallIntegerField(
+        help_text="1 is the most urgent. The queue sorts by this."
+    )
+    name = models.CharField(max_length=60)
+    colour = models.CharField(
+        max_length=20, blank=True,
+        help_text="What the department calls it on the wall: red, orange, green.",
+    )
+    target_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="How long this level should wait before being seen.",
+    )
+    description = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["scale", "rank"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["scale", "rank"], name="one_level_per_rank_per_scale"
+            ),
+            models.CheckConstraint(
+                condition=models.Q(rank__gte=1), name="triage_rank_starts_at_one"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.rank}. {self.name}"
+
+
+class EmergencyEpisode(models.Model):
+    """An attendance at the emergency department. AC-167 to AC-170.
+
+    Hangs off a `Visit`, which carries the queue position and the state
+    machine. What lives here is what the ED needs and a clinic attendance does
+    not: how they arrived, the triage history, and an outcome that must be
+    recorded exactly once.
+    """
+
+    WALK_IN = "walk_in"
+    AMBULANCE = "ambulance"
+    POLICE = "police"
+    REFERRED = "referred"
+    TRANSFER = "transfer"
+    ARRIVAL_CHOICES = [
+        (WALK_IN, "Walked in"), (AMBULANCE, "Ambulance"), (POLICE, "Police"),
+        (REFERRED, "Referred by another clinician"),
+        (TRANSFER, "Transferred from another hospital"),
+    ]
+
+    ADMITTED = "admitted"
+    TRANSFERRED = "transferred"
+    REFERRED_OUT = "referred"
+    DISCHARGED = "discharged"
+    DIED = "died"
+    LEFT_WITHOUT_BEING_SEEN = "lwbs"
+    OUTCOME_CHOICES = [
+        (ADMITTED, "Admitted"), (TRANSFERRED, "Transferred to another hospital"),
+        (REFERRED_OUT, "Referred on"), (DISCHARGED, "Discharged"),
+        (DIED, "Died"), (LEFT_WITHOUT_BEING_SEEN, "Left without being seen"),
+    ]
+
+    visit = models.OneToOneField(
+        Visit, on_delete=models.PROTECT, related_name="emergency_episode"
+    )
+    arrival_mode = models.CharField(
+        max_length=12, choices=ARRIVAL_CHOICES, default=WALK_IN
+    )
+    presenting_complaint = models.CharField(max_length=255)
+    brought_in_by = models.CharField(
+        max_length=200, blank=True,
+        help_text="Ambulance service, relative, police unit — whoever handed over.",
+    )
+    circumstances = models.TextField(
+        blank=True,
+        help_text="What the crew could say: where they were found, what they were "
+                  "wearing. Often the only thing that lets a relative confirm an "
+                  "unidentified patient is theirs.",
+    )
+
+    # AC-170. Exactly one outcome, recorded with a time. Enforced by the
+    # constraint below rather than by convention: an episode with two outcomes
+    # makes the department's own figures unanswerable, and one with none never
+    # closes.
+    outcome = models.CharField(max_length=12, choices=OUTCOME_CHOICES, blank=True)
+    outcome_at = models.DateTimeField(null=True, blank=True)
+    outcome_note = models.TextField(blank=True)
+    outcome_recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="emergency_outcomes",
+    )
+
+    opened_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-opened_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(presenting_complaint=""),
+                name="emergency_episode_states_a_complaint",
+            ),
+            # An outcome and its time arrive together or not at all. Half of
+            # one is a closed episode nobody can date, or a time attached to
+            # nothing.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(outcome="", outcome_at__isnull=True)
+                    | ~models.Q(outcome="") & models.Q(outcome_at__isnull=False)
+                ),
+                name="emergency_outcome_carries_its_time",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(outcome="")
+                | models.Q(outcome_recorded_by__isnull=False),
+                name="emergency_outcome_names_who_recorded_it",
+            ),
+        ]
+        permissions = [
+            ("triage_patient", "Can triage a patient in the emergency department"),
+            ("close_emergency_episode", "Can record how an emergency episode ended"),
+        ]
+
+    def __str__(self):
+        return f"ED — {self.visit.patient.full_name}"
+
+    @property
+    def patient(self):
+        return self.visit.patient
+
+    @property
+    def facility_id(self):
+        return self.visit.facility_id
+
+    @property
+    def is_open(self):
+        return self.outcome == ""
+
+    def current_triage(self):
+        """The latest assessment. AC-169 — the earlier ones are still there.
+
+        Reads the prefetched list where there is one, so the emergency board
+        is one query rather than one per patient waiting.
+        """
+        cache = getattr(self, "_prefetched_objects_cache", {})
+        if "triage_assessments" in cache:
+            assessments = list(cache["triage_assessments"])
+            # Model ordering is by sequence ascending, so the last is current.
+            return assessments[-1] if assessments else None
+        return self.triage_assessments.order_by("-sequence").first()
+
+    def waiting_minutes(self):
+        end = self.outcome_at or timezone.now()
+        return int((end - self.visit.arrived_at).total_seconds() // 60)
+
+
+class TriageAssessment(models.Model):
+    """One triage. AC-168, AC-169.
+
+    Re-triage appends rather than edits. A patient who arrived green and went
+    red did not "have their severity corrected" — they deteriorated, and the
+    time that happened is the clinically interesting fact. Editing the first
+    assessment would erase exactly the thing an incident review looks for.
+    """
+
+    episode = models.ForeignKey(
+        EmergencyEpisode, on_delete=models.CASCADE, related_name="triage_assessments"
+    )
+    level = models.ForeignKey(
+        TriageLevel, on_delete=models.PROTECT, related_name="assessments"
+    )
+    sequence = models.PositiveSmallIntegerField(
+        help_text="1 for the triage on arrival; higher for each re-triage."
+    )
+
+    complaint = models.CharField(max_length=255, blank=True)
+    observations = models.TextField(
+        blank=True, help_text="What was measured or seen at this assessment."
+    )
+    reason_for_retriage = models.CharField(
+        max_length=255, blank=True,
+        help_text="Required on a re-triage. Why the severity changed.",
+    )
+
+    assessed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="triage_assessments",
+    )
+    assessed_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["episode", "sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["episode", "sequence"],
+                name="one_assessment_per_sequence_per_episode",
+            ),
+            # AC-169. A re-triage says why. Without it the record shows a
+            # severity that changed for no stated reason, which is the same as
+            # not knowing whether the patient deteriorated or somebody
+            # mis-triaged them first time.
+            models.CheckConstraint(
+                condition=models.Q(sequence=1) | ~models.Q(reason_for_retriage=""),
+                name="retriage_states_why",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Triage {self.sequence}: {self.level.name}"

@@ -1,0 +1,46 @@
+name: Clinical correction
+description: A clinical default in this software is wrong
+labels: ["clinical", "needs clinical review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Round times, overdue windows, escalation thresholds, triage scales and
+        consent wording in this repository are **defaults chosen by software
+        people, not clinicians.** If one of them is wrong, this is one of the
+        most valuable issues you can open.
+
+        Please do not include any real patient's details.
+
+  - type: textarea
+    id: what-is-wrong
+    attributes:
+      label: What is wrong
+      description: Where in the software, and what does it currently say or do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-it-should-be
+    attributes:
+      label: What it should be
+    validations:
+      required: true
+
+  - type: textarea
+    id: basis
+    attributes:
+      label: What that is based on
+      description: >
+        A guideline, a standard, a national protocol, or your own practice —
+        all are useful, but say which.
+    validations:
+      required: true
+
+  - type: input
+    id: context
+    attributes:
+      label: Where do you practise
+      description: >
+        Optional. Helpful because some of these defaults are reasonable in one
+        health system and wrong in another.

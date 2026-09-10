@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Diagnosis, Encounter, EncounterVersion, VitalSigns
+from .models import Diagnosis, Encounter, EncounterVersion, Referral, ReferralPrint, VitalSigns
 
 
 class DiagnosisSerializer(serializers.ModelSerializer):
@@ -131,3 +131,66 @@ class VitalSignsSerializer(serializers.ModelSerializer):
 
 class MarkErroneousSerializer(serializers.Serializer):
     reason = serializers.CharField()
+
+
+class ReferralPrintSerializer(serializers.ModelSerializer):
+    printed_by_email = serializers.CharField(source="printed_by.email", read_only=True)
+
+    class Meta:
+        model = ReferralPrint
+        fields = ["id", "printed_by", "printed_by_email", "printed_at", "is_reprint"]
+        read_only_fields = fields
+
+
+class ReferralSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source="patient.full_name", read_only=True)
+    hospital_number = serializers.CharField(
+        source="patient.hospital_number", read_only=True
+    )
+    destination = serializers.CharField(read_only=True)
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    urgency_display = serializers.CharField(source="get_urgency_display", read_only=True)
+    referred_by_email = serializers.CharField(
+        source="referred_by.email", read_only=True
+    )
+    referred_by_name = serializers.CharField(
+        source="referred_by.full_name", read_only=True
+    )
+    to_department_name = serializers.CharField(
+        source="to_department.name", read_only=True, default=None
+    )
+    to_clinician_name = serializers.CharField(
+        source="to_clinician.full_name", read_only=True, default=None
+    )
+    outcome_recorded_by_email = serializers.CharField(
+        source="outcome_recorded_by.email", read_only=True, default=None
+    )
+    prints = ReferralPrintSerializer(many=True, read_only=True)
+    is_open = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Referral
+        fields = ["id", "reference", "kind", "kind_display", "patient", "patient_name",
+                  "hospital_number", "facility", "encounter", "visit", "admission",
+                  "to_department", "to_department_name", "to_clinician",
+                  "to_clinician_name", "to_organisation", "to_external_clinician",
+                  "to_address", "destination", "reason", "clinical_question",
+                  "what_was_sent", "urgency", "urgency_display", "status",
+                  "status_display", "referred_by", "referred_by_email",
+                  "referred_by_name", "referred_at", "sent_at", "outcome",
+                  "outcome_recorded_by", "outcome_recorded_by_email",
+                  "outcome_recorded_at", "print_count", "prints", "is_open"]
+        read_only_fields = ["id", "reference", "facility", "patient", "status",
+                            "status_display", "referred_by", "referred_at", "sent_at",
+                            "outcome", "outcome_recorded_by", "outcome_recorded_at",
+                            "print_count", "prints", "destination", "is_open"]
+
+
+class ReferralOutcomeSerializer(serializers.Serializer):
+    outcome = serializers.CharField()
+    declined = serializers.BooleanField(default=False)
+
+
+class ReferralReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=255)

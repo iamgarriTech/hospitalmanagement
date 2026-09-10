@@ -1,6 +1,8 @@
 from django.core.exceptions import ValidationError
+from django.db import models
 from django.db.models import Prefetch
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status as http
 from rest_framework import viewsets
@@ -10,14 +12,24 @@ from rest_framework.response import Response
 from audit.models import AuditEvent
 from billing.models import Service, charge
 from core.episodes import episode_owner, facility_from_request
-from core.permissions import HasPermission
+from core.permissions import FacilityScopedMixin, HasPermission
 
-from .models import Diagnosis, Encounter, EncounterVersion, VitalSigns
+from . import referrals
+from .models import (
+    Diagnosis,
+    Encounter,
+    EncounterVersion,
+    Referral,
+    VitalSigns,
+)
 from .serializers import (
     AmendSerializer,
     EncounterSerializer,
     EncounterVersionSerializer,
     MarkErroneousSerializer,
+    ReferralOutcomeSerializer,
+    ReferralReasonSerializer,
+    ReferralSerializer,
     VitalSignsSerializer,
 )
 
@@ -385,3 +397,188 @@ class VitalSignsViewSet(viewsets.ModelViewSet):
             request=request,
         )
         return Response(self.get_serializer(vitals).data)
+
+
+class ReferralViewSet(FacilityScopedMixin, viewsets.ModelViewSet):
+    """AC-164 to AC-166.
+
+    `status` is read-only and moved by actions, because each transition is a
+    different act by a different person: the referrer sends, the receiving
+    clinician accepts, and whoever saw the patient records the outcome. A
+    writable status would let the sender mark their own referral as seen.
+    """
+
+    queryset = Referral.objects.none()
+    serializer_class = ReferralSerializer
+    permission_classes = [HasPermission]
+    http_method_names = ["get", "post", "head", "options"]
+    required_permissions = {
+        "list": "clinical.view_referral",
+        "retrieve": "clinical.view_referral",
+        "create": "clinical.make_referral",
+        "send": "clinical.make_referral",
+        "accept": "clinical.record_referral_outcome",
+        "outcome": "clinical.record_referral_outcome",
+        "cancel": "clinical.make_referral",
+        "letter": "clinical.view_referral",
+    }
+
+    def get_queryset(self):
+        queryset = self._scope(
+            Referral.objects.select_related(
+                "patient", "facility", "referred_by", "to_department", "to_clinician",
+                "outcome_recorded_by", "visit__clinic__department",
+            ).prefetch_related("prints__printed_by")
+        )
+        params = self.request.query_params
+        if params.get("status"):
+            queryset = queryset.filter(status__in=params["status"].split(","))
+        if params.get("patient"):
+            queryset = queryset.filter(patient_id=params["patient"])
+        if params.get("open") == "true":
+            queryset = queryset.filter(
+                status__in=[Referral.DRAFT, Referral.SENT, Referral.ACCEPTED]
+            )
+        if params.get("to_me") == "true":
+            # AC-164 — the receiving clinician's list. Referrals addressed to
+            # this clinician by name, plus ones sent to a department with
+            # nobody named: those are the pool anyone in the department picks
+            # up, and a referral sitting in a queue nobody watches is the
+            # failure this list exists to prevent.
+            #
+            # Departments are not scoped per user — role assignments are per
+            # facility — so the department pool is everything in scope. That is
+            # the honest behaviour until staff carry a department.
+            queryset = queryset.filter(
+                models.Q(to_clinician=self.request.user)
+                | models.Q(to_clinician__isnull=True, to_department__isnull=False)
+            ).exclude(status=Referral.DRAFT)
+        if params.get("department"):
+            queryset = queryset.filter(to_department_id=params["department"])
+        return queryset
+
+    def facility_for_permission(self, request):
+        if self.action == "create":
+            return facility_from_request(request)
+        return None
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            patient, facility = episode_owner(
+                visit=data.get("visit"), admission=data.get("admission")
+            )
+        except ValidationError as refusal:
+            return Response({"detail": refusal.messages},
+                            status=http.HTTP_400_BAD_REQUEST)
+
+        try:
+            record = referrals.refer(
+                patient=patient, facility=facility, kind=data["kind"],
+                reason=data["reason"], clinical_question=data["clinical_question"],
+                actor=request.user,
+                to_department=data.get("to_department"),
+                to_clinician=data.get("to_clinician"),
+                to_organisation=data.get("to_organisation", ""),
+                to_external_clinician=data.get("to_external_clinician", ""),
+                to_address=data.get("to_address", ""),
+                what_was_sent=data.get("what_was_sent", ""),
+                urgency=data.get("urgency", Referral.ROUTINE),
+                encounter=data.get("encounter"), visit=data.get("visit"),
+                admission=data.get("admission"),
+            )
+        except ValidationError as refusal:
+            return Response({"detail": refusal.messages},
+                            status=http.HTTP_400_BAD_REQUEST)
+
+        AuditEvent.record(
+            action="referral.created", actor=request.user, resource=record,
+            patient=record.patient, facility=record.facility,
+            after={"reference": record.reference, "kind": record.kind,
+                   "to": record.destination, "urgency": record.urgency},
+            reason=record.reason, request=request,
+        )
+        return Response(self.get_serializer(record).data, status=http.HTTP_201_CREATED)
+
+    def _act(self, request, fn, action_name, status_on_error=http.HTTP_409_CONFLICT,
+             **kwargs):
+        record = self.get_object()
+        try:
+            fn(record, actor=request.user, **kwargs)
+        except ValidationError as refusal:
+            return Response({"detail": refusal.messages}, status=status_on_error)
+        AuditEvent.record(
+            action=action_name, actor=request.user, resource=record,
+            patient=record.patient, facility=record.facility,
+            after={"reference": record.reference, "status": record.status,
+                   "to": record.destination},
+            reason=record.outcome or record.reason, request=request,
+        )
+        return Response(self.get_serializer(record).data)
+
+    @extend_schema(request=None, responses={200: ReferralSerializer},
+                   summary="Send it — it then appears on the receiving list")
+    @action(detail=True, methods=["post"])
+    def send(self, request, pk=None):
+        return self._act(request, referrals.send, "referral.sent")
+
+    @extend_schema(request=None, responses={200: ReferralSerializer},
+                   summary="Accept a referral sent to you")
+    @action(detail=True, methods=["post"])
+    def accept(self, request, pk=None):
+        return self._act(request, referrals.accept, "referral.accepted")
+
+    @extend_schema(request=ReferralOutcomeSerializer,
+                   responses={200: ReferralSerializer},
+                   summary="Record what came back")
+    @action(detail=True, methods=["post"])
+    def outcome(self, request, pk=None):
+        serializer = ReferralOutcomeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return self._act(
+            request, referrals.record_outcome, "referral.outcome_recorded",
+            status_on_error=http.HTTP_400_BAD_REQUEST,
+            outcome=serializer.validated_data["outcome"],
+            declined=serializer.validated_data["declined"],
+        )
+
+    @extend_schema(request=ReferralReasonSerializer,
+                   responses={200: ReferralSerializer}, summary="Cancel it")
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        serializer = ReferralReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return self._act(
+            request, referrals.cancel, "referral.cancelled",
+            reason=serializer.validated_data["reason"],
+        )
+
+    @extend_schema(
+        responses={200: OpenApiTypes.OBJECT},
+        summary="The referral letter, assembled from the record",
+    )
+    @action(detail=True, methods=["get"])
+    def letter(self, request, pk=None):
+        """AC-166.
+
+        Assembled on every read, so a reprint is identical by construction
+        rather than by intention — there is no stored copy to drift. Every
+        read is logged, which makes "reprints are logged" true of the reprints
+        and not only of the first print.
+        """
+        record = self.get_object()
+        is_reprint = referrals.record_print(record, actor=request.user)
+        AuditEvent.record(
+            action="referral.letter_printed", actor=request.user, resource=record,
+            patient=record.patient, facility=record.facility,
+            after={"reference": record.reference, "is_reprint": is_reprint,
+                   "print_count": record.print_count},
+            request=request,
+        )
+        return Response({
+            "letter": referrals.letter(record),
+            "is_reprint": is_reprint,
+            "print_count": record.print_count,
+        })

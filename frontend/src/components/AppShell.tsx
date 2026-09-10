@@ -26,6 +26,11 @@ import {
   DashboardIcon,
   ImagingIcon,
   StoresIcon,
+  EmergencyIcon,
+  MaternityIcon,
+  ReferralIcon,
+  ReportsIcon,
+  TheatreIcon,
 
   LabIcon,
   LogoutIcon,
@@ -293,13 +298,46 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      to: '/referrals',
+      end: false,
+      label: 'Referrals',
+      icon: ReferralIcon,
+      show: can('clinical.view_referral'),
+    },
+    {
+      to: '/maternity',
+      end: false,
+      label: 'Maternity',
+      icon: MaternityIcon,
+      show: can('maternity.view_pregnancy'),
+    },
+    {
+      to: '/emergency',
+      end: false,
+      label: 'Emergency',
+      icon: EmergencyIcon,
+      show: can('visits.view_emergencyepisode'),
+    },
+    {
+      to: '/theatre',
+      end: false,
+      label: 'Theatre',
+      icon: TheatreIcon,
+      show: can('procedures.view_procedurerequest'),
+    },
+    {
       to: '/stores',
       end: false,
       label: 'Stores',
       icon: StoresIcon,
-      show: can('inventory.view_stockrecord'),
+      show: canAny('inventory.view_stockrecord', 'inventory.view_purchaserequest'),
       children: [
         { to: '/stores', label: 'Stock alerts', show: can('inventory.view_stockrecord') },
+        {
+          to: '/purchasing',
+          label: 'Purchasing',
+          show: can('inventory.view_purchaserequest'),
+        },
       ],
     },
     {
@@ -323,6 +361,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       ],
     },
     {
+      to: '/reports',
+      end: false,
+      label: 'Reports',
+      icon: ReportsIcon,
+      show: can('reporting.view_reports'),
+    },
+    {
       to: '/settings',
       end: false,
       label: 'Configuration',
@@ -332,6 +377,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         'billing.view_paymentmethod',
         'inpatient.view_ward',
         'inventory.view_store',
+        'notifications.view_outbox',
       ),
       children: [
         { to: '/settings/facilities', label: 'Facilities', show: can('facilities.view_facility') },
@@ -347,11 +393,28 @@ export function AppShell({ children }: { children: ReactNode }) {
           show: can('inventory.view_store'),
         },
         {
+          to: '/settings/suppliers',
+          label: 'Suppliers',
+          show: can('inventory.view_supplier'),
+        },
+        {
           to: '/settings/payment-methods',
           label: 'Payment methods',
           show: can('billing.view_paymentmethod'),
         },
+        {
+          to: '/settings/outbox',
+          label: 'Outbound messages',
+          show: can('notifications.view_outbox'),
+        },
       ],
+    },
+    {
+      to: '/limitations',
+      end: false,
+      label: 'What is not checked',
+      icon: AlertIcon,
+      show: true,
     },
     {
       to: '/audit',

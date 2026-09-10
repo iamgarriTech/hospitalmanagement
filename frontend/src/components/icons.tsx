@@ -177,3 +177,46 @@ export const StoresIcon = (p: SVGProps<SVGSVGElement>) => (
     <path d="M3 7.5 12 12l9-4.5M12 12v9" />
   </Icon>
 )
+
+/** A scalpel. Theatre. */
+export const TheatreIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M4 20 14.5 9.5M13 4.5 20 11l-5.5 1.5L11 9z" />
+    <path d="M4 20h3l1-3" />
+  </Icon>
+)
+
+/** A cross in a shield. The emergency department. */
+export const EmergencyIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M7 4h10l4 4v8l-4 4H7l-4-4V8z" />
+    <path d="M12 9v6M9 12h6" />
+  </Icon>
+)
+
+/** A bar chart. Reports. */
+export const ReportsIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M4 20V4M4 20h16" />
+    <path d="M8 20v-6M12.5 20V8M17 20v-9" />
+  </Icon>
+)
+
+/** An arrow leaving a document. A referral. */
+export const ReferralIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <path d="M13 3.6H6v16.8h12V8.6z" />
+    <path d="M13 3.6V8.6h5" />
+    <path d="M9 14h6M13 11.5 15.5 14 13 16.5" />
+  </Icon>
+)
+
+/** A stylised mother and child. Maternity. */
+export const MaternityIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}>
+    <circle cx="10" cy="5.5" r="2.5" />
+    <path d="M6 21v-6a4 4 0 0 1 4-4c2.5 0 4 1.5 4 4v2" />
+    <circle cx="17" cy="13" r="2" />
+    <path d="M14.5 21v-3a2.5 2.5 0 0 1 5 0v3" />
+  </Icon>
+)

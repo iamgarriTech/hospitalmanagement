@@ -37,6 +37,12 @@ from pharmacy.models import (
     StockBatch,
     StockMovement,
 )
+from procedures.models import (
+    Procedure,
+    ProcedureCategory,
+    ProcedureConsumable,
+    Theatre,
+)
 
 DEMO_PASSWORD = "demo-password-not-for-real-use"
 
@@ -164,6 +170,46 @@ SUPPLIERS = [
      "Two deliveries of expired stock in 2026. Suspended pending review."),
 ]
 
+# Procedures the hospital does, and the theatres it does them in.
+# (category, name, code, minutes, theatre, consent, anaesthesia, service code)
+PROCEDURE_CATEGORIES = [("Minor procedures", 1), ("Surgery", 2), ("Obstetrics", 3)]
+PROCEDURES = [
+    ("Minor procedures", "Wound suturing", "PRC-SUT", 30, False, True, False,
+     "PROC-SUT"),
+    ("Minor procedures", "Abscess incision and drainage", "PRC-IND", 30, False, True,
+     False, "PROC-IND"),
+    ("Minor procedures", "Urinary catheterisation", "PRC-CATH", 20, False, True, False,
+     "PROC-CATH"),
+    ("Minor procedures", "Wound dressing", "PRC-DRESS", 15, False, False, False,
+     "PROC-DRESS"),
+    ("Surgery", "Appendicectomy", "PRC-APPY", 75, True, True, True, "PROC-APPY"),
+    ("Surgery", "Herniorrhaphy, inguinal", "PRC-HERN", 90, True, True, True,
+     "PROC-HERN"),
+    ("Surgery", "Exploratory laparotomy", "PRC-LAP", 150, True, True, True,
+     "PROC-LAP"),
+    ("Obstetrics", "Caesarean section", "PRC-LSCS", 60, True, True, True, "PROC-LSCS"),
+]
+
+# What each procedure normally opens. A default, not a rule — what was
+# actually used is recorded against the performed procedure.
+PROCEDURE_CONSUMABLES = [
+    ("PRC-SUT", "GLV-S75", 1), ("PRC-SUT", "GZE-10", 2), ("PRC-SUT", "SPT-500", 1),
+    ("PRC-IND", "GLV-S75", 1), ("PRC-IND", "GZE-10", 3), ("PRC-IND", "CHX-500", 1),
+    ("PRC-CATH", "GLV-S75", 1), ("PRC-CATH", "CHX-500", 1),
+    ("PRC-DRESS", "GLV-M", 1), ("PRC-DRESS", "GZE-10", 2),
+    ("PRC-APPY", "GLV-S75", 4), ("PRC-APPY", "GZE-10", 10),
+    ("PRC-APPY", "CHX-500", 1), ("PRC-APPY", "IVS-1", 2),
+    ("PRC-HERN", "GLV-S75", 4), ("PRC-HERN", "GZE-10", 8), ("PRC-HERN", "IVS-1", 2),
+    ("PRC-LAP", "GLV-S75", 6), ("PRC-LAP", "GZE-10", 15), ("PRC-LAP", "IVS-1", 3),
+    ("PRC-LSCS", "GLV-S75", 4), ("PRC-LSCS", "GZE-10", 10), ("PRC-LSCS", "IVS-1", 2),
+]
+
+THEATRES = [
+    ("Theatre 1", "T1", "THEATRE-ST"),
+    ("Theatre 2", "T2", "THEATRE-ST"),
+    ("Minor procedures room", "MPR", "MAIN-ST"),
+]
+
 # When an observation on a ward has to be escalated. Per ward, because the same
 # figure means different things in intensive care and on a general ward.
 ESCALATION_THRESHOLDS = {
@@ -216,6 +262,20 @@ ROLES = {
     "Hospital Administrator": {
         "discount_limit": "100000.00",
         "permissions": [
+            # Enough read access to run the reports. An administrator who can
+            # configure the hospital but cannot see how busy it is has half a
+            # job — and every one of these is read-only.
+            "pharmacy.view_prescription", "pharmacy.view_medication",
+            "inventory.view_stockrecord", "inventory.view_store",
+            "inpatient.view_admission", "inpatient.view_ward",
+            "visits.view_emergencyepisode",
+            "procedures.view_performedprocedure",
+            "maternity.view_delivery",
+            "imaging.view_imagingorder",
+            "clinical.view_encounter", "laboratory.view_laborder",
+            "billing.view_invoice", "billing.view_payment",
+            "insurance.view_claimbatch",
+            "reporting.view_reports",
             "facilities.*",
             # Configuration: roles, staff access, identifier formats.
             "accounts.*",
@@ -261,6 +321,8 @@ ROLES = {
     },
     "Doctor": {
         "permissions": [
+            "procedures.view_*", "procedures.request_procedure",
+            "procedures.record_consent",
             "facilities.view_facility", "patients.view_patient",
             "visits.view_visit", "visits.move_queue",
             "clinical.*", "laboratory.view_laborder", "laboratory.add_laborder",
@@ -272,6 +334,11 @@ ROLES = {
     "Consultant": {
         "discount_limit": "0.00",
         "permissions": [
+            "reporting.view_reports",
+            "procedures.view_*", "procedures.request_procedure",
+            "procedures.record_consent",
+            "procedures.perform_procedure",
+            "procedures.amend_operation_note",
             "facilities.view_facility", "patients.view_patient",
             "visits.view_visit", "visits.move_queue", "clinical.*",
             "laboratory.view_laborder", "laboratory.add_laborder",
@@ -323,6 +390,7 @@ ROLES = {
     "Accountant": {
         "discount_limit": "100000.00",
         "permissions": [
+            "reporting.view_reports",
             "facilities.view_facility", "patients.view_patient", "visits.view_visit",
             "billing.*",
             # Writing off money a scheme did not pay is the same class of
@@ -330,6 +398,67 @@ ROLES = {
             # the billing desk that raised the claim.
             "insurance.view_*", "insurance.record_claim_outcome",
             "insurance.add_providerpayment", "insurance.write_off_claim_shortfall",
+        ],
+    },
+    # --- theatre ----------------------------------------------------------------
+    "Surgeon": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "visits.view_visit", "clinical.view_encounter",
+            "inpatient.view_admission",
+            "procedures.*",
+            "inventory.view_stockrecord", "inventory.view_inventoryitem",
+            "inventory.issue_stock",
+            "pharmacy.view_medication",
+        ],
+    },
+    "Theatre Nurse": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "visits.view_visit", "inpatient.view_admission",
+            "procedures.view_*", "procedures.schedule_procedure",
+            "procedures.record_consent",
+            "inventory.view_stockrecord", "inventory.view_inventoryitem",
+            "inventory.issue_stock",
+            "pharmacy.view_medication",
+            # Deliberately not perform_procedure: the nurse runs the list and
+            # scrubs, but the operation note is the surgeon's record.
+        ],
+    },
+    "Anaesthetist": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "visits.view_visit", "clinical.view_encounter",
+            "inpatient.view_admission",
+            "procedures.view_*", "procedures.record_consent",
+            "pharmacy.view_medication",
+        ],
+    },
+    # --- maternity ----------------------------------------------------------
+    # AC-173: a hospital that does not provide maternity simply never creates
+    # these roles. Nothing else in the system changes, and the navigation
+    # entry never appears, because it follows the permissions.
+    "Midwife": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "patients.add_patient", "visits.view_visit",
+            "maternity.view_*", "maternity.book_pregnancy",
+            "maternity.record_antenatal_visit", "maternity.record_delivery",
+            "clinical.view_encounter", "clinical.add_vitalsigns",
+            "inpatient.view_admission",
+        ],
+    },
+    "Obstetrician": {
+        "permissions": [
+            "facilities.view_facility", "patients.view_patient",
+            "patients.add_patient", "visits.view_visit",
+            "maternity.*",
+            "clinical.view_encounter", "clinical.add_encounter",
+            "clinical.change_encounter",
+            "inpatient.view_admission", "inpatient.admit_patient",
+            "procedures.view_*", "procedures.request_procedure",
+            "procedures.record_consent", "procedures.perform_procedure",
+            "procedures.amend_operation_note",
         ],
     },
     # --- stores ---------------------------------------------------------------
@@ -415,6 +544,8 @@ ROLES = {
     },
     "Ward Doctor": {
         "permissions": [
+            "procedures.view_*", "procedures.request_procedure",
+            "procedures.record_consent",
             "facilities.view_facility", "patients.view_patient",
             "visits.view_visit", "visits.move_queue",
             "clinical.*",
@@ -503,6 +634,11 @@ STAFF = [
     ("wardmanager@demo.test", "Ngozi Okafor", "Ward Manager", "MAIN"),
     ("stores@demo.test", "Danladi Musa", "Storekeeper", "MAIN"),
     ("storesmgr@demo.test", "Halima Yusuf", "Stores Manager", "MAIN"),
+    ("midwife@demo.test", "Blessing Okafor", "Midwife", "MAIN"),
+    ("obstetrician@demo.test", "Folake Adeniyi", "Obstetrician", "MAIN"),
+    ("surgeon@demo.test", "Emeka Nwankwo", "Surgeon", "MAIN"),
+    ("theatrenurse@demo.test", "Bisi Adeleke", "Theatre Nurse", "MAIN"),
+    ("anaesthetist@demo.test", "Suleiman Garba", "Anaesthetist", "MAIN"),
     ("buyer@demo.test", "Chika Eze", "Buyer", "MAIN"),
     ("purchasing@demo.test", "Bola Sanni", "Purchasing Approver", "MAIN"),
     ("radiographer@demo.test", "Yemisi Oladele", "Radiographer", "MAIN"),
@@ -525,6 +661,13 @@ SERVICES = [
     ("Procedures", 3, [
         ("Wound dressing", "PROC-DRESS", "3000.00"),
         ("Intramuscular injection", "PROC-IM", "1000.00"),
+        ("Wound suturing", "PROC-SUT", "12000.00"),
+        ("Abscess incision and drainage", "PROC-IND", "15000.00"),
+        ("Urinary catheterisation", "PROC-CATH", "8000.00"),
+        ("Appendicectomy", "PROC-APPY", "180000.00"),
+        ("Herniorrhaphy, inguinal", "PROC-HERN", "220000.00"),
+        ("Exploratory laparotomy", "PROC-LAP", "350000.00"),
+        ("Caesarean section", "PROC-LSCS", "250000.00"),
     ]),
     ("Radiology", 4, [
         ("Chest X-ray", "IMG-CXR", "8000.00"),
@@ -954,6 +1097,46 @@ class Command(BaseCommand):
                 },
             )
 
+        # --- procedures and theatres -----------------------------------------
+        procedure_categories = {}
+        for name, order in PROCEDURE_CATEGORIES:
+            category, _ = ProcedureCategory.objects.update_or_create(
+                name=name, defaults={"display_order": order}
+            )
+            procedure_categories[name] = category
+
+        procedures = {}
+        for (category_name, name, code, minutes, theatre, consent, anaesthesia,
+             service_code) in PROCEDURES:
+            procedure, _ = Procedure.objects.update_or_create(
+                code=code,
+                defaults={
+                    "category": procedure_categories[category_name],
+                    "name": name,
+                    "typical_duration_minutes": minutes,
+                    "requires_theatre": theatre,
+                    "requires_consent": consent,
+                    "requires_anaesthesia": anaesthesia,
+                    "billing_service": services.get(service_code)
+                    if service_code else None,
+                },
+            )
+            procedures[code] = procedure
+
+        for procedure_code, item_code, quantity in PROCEDURE_CONSUMABLES:
+            if item_code not in stock_items:
+                continue
+            ProcedureConsumable.objects.update_or_create(
+                procedure=procedures[procedure_code], item=stock_items[item_code],
+                defaults={"quantity": quantity},
+            )
+
+        for name, code, store_code in THEATRES:
+            Theatre.objects.update_or_create(
+                facility=facilities["MAIN"], code=code,
+                defaults={"name": name, "store": stores.get(store_code)},
+            )
+
         # --- imaging catalogue -----------------------------------------------
         modalities = {}
         for name, code, order in MODALITIES:
@@ -1008,6 +1191,8 @@ class Command(BaseCommand):
             ("imaging procedures", ImagingProcedure.objects.count()),
             ("medications", Medication.objects.count()),
             ("stock batches", StockBatch.objects.count()),
+            ("procedures", Procedure.objects.count()),
+            ("theatres", Theatre.objects.count()),
             ("suppliers", Supplier.objects.count()),
             ("stores", Store.objects.count()),
             ("inventory items", InventoryItem.objects.count()),

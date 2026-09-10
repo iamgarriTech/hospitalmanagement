@@ -1,0 +1,81 @@
+name: Bug report
+description: Something behaves differently from how it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste real patient data.** Reproduce it against `seed_demo`
+        and `demo_day`, which generate synthetic patients, and use those.
+        If you cannot reproduce it with synthetic data, describe the shape of
+        the record rather than its contents.
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: One or two sentences. What did the software do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-should-happen
+    attributes:
+      label: What should happen instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: From a freshly seeded demo hospital, ideally.
+      placeholder: |
+        1. Sign in as cashier@demo.test
+        2. Open My till
+        3. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the hospital
+      options:
+        - Registration and the queue
+        - Consultation and clinical records
+        - Laboratory
+        - Imaging
+        - Pharmacy
+        - Wards and inpatients
+        - Billing and the cash desk
+        - Insurance and claims
+        - Stores and procurement
+        - Configuration and permissions
+        - Audit
+        - Something else, or more than one
+    validations:
+      required: true
+
+  - type: input
+    id: role
+    attributes:
+      label: Which role were you signed in as
+      placeholder: e.g. cashier@demo.test, or a role you created
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Commit or version:
+        Python:
+        Node:
+        PostgreSQL:
+        Browser (if it is a screen problem):
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: Tracebacks, failing test output, screenshots of synthetic data.

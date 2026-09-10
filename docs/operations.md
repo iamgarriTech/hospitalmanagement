@@ -101,3 +101,61 @@ will not.
 - **`verify_audit_chain` is a real check, not decoration.** Run it after any
   restore and on a schedule. It recomputes every row's hash; a broken chain
   means the log has been altered out of band.
+
+## Upgrading
+
+Self-hosted hospitals upgrade on their own schedule, so every release has to be
+reachable from the one before it. The sequence, in order:
+
+```bash
+# 1. Back up first, and confirm the backup is real.
+pg_dump --format=custom hms > /backup/pre-upgrade-$(date +%F).dump
+ls -lh /backup/pre-upgrade-$(date +%F).dump      # a zero-byte file is not a backup
+
+# 2. Read what changed.
+#    CHANGELOG.md, and any "Breaking" note against your target version.
+
+# 3. Take the application down. Migrations run against a quiet database.
+systemctl stop vitacore
+
+# 4. Fetch the release and its dependencies.
+git fetch --tags && git checkout <tag>
+.venv/bin/pip install -r backend/requirements.txt
+cd frontend && npm ci && npm run build && cd ..
+
+# 5. Migrate — as the owning role, not the reduced application role.
+DATABASE_URL="$OWNER_DATABASE_URL" .venv/bin/python backend/manage.py migrate
+
+# 6. Check the deployment before letting anybody in.
+.venv/bin/python backend/manage.py check --deploy --fail-level WARNING
+.venv/bin/python backend/manage.py verify_audit_chain
+
+# 7. Back up.
+systemctl start vitacore
+```
+
+**Migrations run as the database owner, the application as the reduced role.**
+That separation is what keeps the audit log append-only: the application role
+cannot `UPDATE` or `DELETE` those rows, and migrations need privileges the
+application must never hold. Running both as one role quietly discards the
+guarantee.
+
+**`verify_audit_chain` after every upgrade.** It walks the hash chain and
+reports the first row that does not follow from its predecessor. A break means
+either a migration touched audit rows — which no migration should — or
+something else did.
+
+**Versions.** `0.x` may change the API and the schema between releases; from
+1.0 the project follows semantic versioning, and a breaking change means a
+major version. Breaking changes carry an upgrade note in `CHANGELOG.md` saying
+exactly what to do.
+
+### Rolling back
+
+Restore the dump from step 1 and check out the previous tag. Migrations are not
+reversed — a reverse migration that discards a column discards the data in it,
+and on a clinical database that is worse than the problem it is solving.
+
+This is why step 1 is not optional, and why the restore drill above is run on
+the real server before each release rather than trusted from a development
+machine.

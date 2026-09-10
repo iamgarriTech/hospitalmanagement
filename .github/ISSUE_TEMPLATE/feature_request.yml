@@ -1,0 +1,41 @@
+name: Feature request
+description: Something the software should do and does not
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [the product guide](../../blob/master/docs/product-guide.md)
+        first. It has a section on what the system **deliberately** does not do,
+        and the reasoning behind each exclusion.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: >
+        Describe the situation in the hospital, not the feature. "The ward
+        cannot tell which patients are waiting on a bed" rather than "add a
+        dashboard widget".
+    validations:
+      required: true
+
+  - type: textarea
+    id: who
+    attributes:
+      label: Whose job is this
+      description: Which role would use it, and at what point in their day?
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: How is it handled today
+      description: On paper? In a spreadsheet? Not at all?
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. The problem matters more than the solution.

@@ -2,7 +2,7 @@
 
 Product name: **VitaCore**, matching the supplied wordmark. Tagline: **Healthier people. Brighter tomorrows.** Hospital organizations and facilities keep their own names inside the workspace.
 
-The source artwork remains at `ChatGPT Image Sep 7, 2026, 11_04_04 AM.png` in the repository root. Transparent PNG masters were prepared using the built-in imagegen editing tool from this reference; these are raster adaptations, not a vector master or a lossless crop of the original.
+The source artwork is held by the project owner and is deliberately not in the repository — it is a working file rather than a deliverable, and the exported masters below are what the application uses. Transparent PNG masters were prepared using the built-in imagegen editing tool from this reference; these are raster adaptations, not a vector master or a lossless crop of the original.
 
 ## Files
 

@@ -13,10 +13,15 @@ from billing.views import (
     ServiceCategoryViewSet,
     ServiceViewSet,
 )
-from clinical.views import EncounterViewSet, VitalSignsViewSet
+from clinical.views import (
+    EncounterViewSet,
+    ReferralViewSet,
+    VitalSignsViewSet,
+)
 from core.config_views import (
     ClinicViewSet,
     DepartmentViewSet,
+    LimitationsView,
     NumberSequenceViewSet,
     OrganizationViewSet,
 )
@@ -54,6 +59,15 @@ from insurance.views import (
     PreauthorisationViewSet,
     ProviderPaymentViewSet,
 )
+from integration.views import VERSION as FACADE_VERSION
+from integration.views import (
+    ConditionFacade,
+    EncounterFacade,
+    FacadeRootView,
+    MedicationRequestFacade,
+    ObservationFacade,
+    PatientFacade,
+)
 from inventory.views import (
     GoodsReceiptViewSet,
     InventoryItemViewSet,
@@ -77,7 +91,8 @@ from laboratory.views import (
     LabTestCategoryViewSet,
     LabTestViewSet,
 )
-from notifications.views import NotificationViewSet
+from maternity.views import DeliveryViewSet, PregnancyViewSet
+from notifications.views import NotificationViewSet, OutboxViewSet
 from patients.views import PatientViewSet
 from pharmacy.views import (
     MedicationCategoryViewSet,
@@ -86,7 +101,29 @@ from pharmacy.views import (
     PrescriptionViewSet,
     StockBatchViewSet,
 )
-from visits.views import VisitViewSet
+from portal.views import (
+    PortalAccountAdminViewSet,
+    PortalLoginView,
+    PortalLogoutView,
+    PortalMeView,
+    PortalRecordViewSet,
+)
+from procedures.views import (
+    OperationNoteViewSet,
+    PerformedProcedureViewSet,
+    ProcedureCategoryViewSet,
+    ProcedureRequestViewSet,
+    ProcedureViewSet,
+    TheatreBookingViewSet,
+    TheatreListView,
+    TheatreViewSet,
+)
+from reporting.views import ReportViewSet
+from visits.views import (
+    EmergencyEpisodeViewSet,
+    TriageScaleViewSet,
+    VisitViewSet,
+)
 
 router = DefaultRouter()
 router.register("facilities", FacilityViewSet, basename="facility")
@@ -176,13 +213,59 @@ router.register("goods-receipts", GoodsReceiptViewSet, basename="goodsreceipt")
 router.register("supplier-invoices", SupplierInvoiceViewSet,
                 basename="supplierinvoice")
 
+router.register("procedure-categories", ProcedureCategoryViewSet,
+                basename="procedurecategory")
+router.register("procedures", ProcedureViewSet, basename="procedure")
+router.register("theatres", TheatreViewSet, basename="theatre")
+router.register("procedure-requests", ProcedureRequestViewSet,
+                basename="procedurerequest")
+router.register("theatre-bookings", TheatreBookingViewSet, basename="theatrebooking")
+router.register("theatre-list", TheatreListView, basename="theatrelist")
+router.register("performed-procedures", PerformedProcedureViewSet,
+                basename="performedprocedure")
+router.register("operation-notes", OperationNoteViewSet, basename="operationnote")
+router.register("referrals", ReferralViewSet, basename="referral")
+router.register("triage-scales", TriageScaleViewSet, basename="triagescale")
+router.register("emergency-episodes", EmergencyEpisodeViewSet,
+                basename="emergencyepisode")
+
+router.register("pregnancies", PregnancyViewSet, basename="pregnancy")
+router.register("deliveries", DeliveryViewSet, basename="delivery")
+router.register("reports", ReportViewSet, basename="report")
+router.register("outbox", OutboxViewSet, basename="outbox")
+router.register("portal-accounts", PortalAccountAdminViewSet,
+                basename="portalaccount")
+
+# The external API facade, versioned in the path. AC-179. A separate router
+# so the version is a real prefix rather than a query parameter somebody can
+# forget — and so v2 can exist beside v1 without touching it.
+portal_router = DefaultRouter()
+portal_router.register("record", PortalRecordViewSet, basename="portal-record")
+
+facade = DefaultRouter()
+facade.register("", FacadeRootView, basename="facade-root")
+facade.register("Patient", PatientFacade, basename="facade-patient")
+facade.register("Encounter", EncounterFacade, basename="facade-encounter")
+facade.register("Condition", ConditionFacade, basename="facade-condition")
+facade.register("Observation", ObservationFacade, basename="facade-observation")
+facade.register("MedicationRequest", MedicationRequestFacade,
+                basename="facade-medicationrequest")
+
 urlpatterns = [
     path("api/meta/", MetaView.as_view(), name="meta"),
+    path("api/limitations/", LimitationsView.as_view(), name="limitations"),
     path("api/auth/csrf/", CsrfView.as_view(), name="csrf"),
     path("api/auth/login/", LoginView.as_view(), name="login"),
     path("api/auth/logout/", LogoutView.as_view(), name="logout"),
     path("api/auth/me/", MeView.as_view(), name="me"),
+    # The portal is mounted under its own prefix with its own authentication.
+    # Nothing here shares a session with the staff API above.
+    path("api/portal/auth/login/", PortalLoginView.as_view(), name="portal-login"),
+    path("api/portal/auth/logout/", PortalLogoutView.as_view(), name="portal-logout"),
+    path("api/portal/auth/me/", PortalMeView.as_view(), name="portal-me"),
+    path("api/portal/", include(portal_router.urls)),
     path("api/", include(router.urls)),
+    path(f"api/fhir/{FACADE_VERSION}/", include(facade.urls)),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
 ]

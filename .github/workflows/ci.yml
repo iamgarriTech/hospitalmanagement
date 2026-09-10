@@ -24,18 +24,51 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
       - run: pip install -r backend/requirements.txt pip-licenses
-      - name: Fail on copyleft dependencies
+
+      # Fails on GPL, AGPL and SSPL — which reads oddly for an AGPL project,
+      # so: VitaCore is dual-licensed (see LICENSING.md), and we cannot
+      # relicense somebody else's copyleft code under the commercial half. One
+      # such dependency would quietly end the second licence, and nobody would
+      # notice until a customer asked for it.
+      #
+      # LGPL is allowed and only reported. It exists to permit exactly this —
+      # a differently-licensed program using an unmodified library — and
+      # Next.js reaches libvips through sharp for image handling. If we ever
+      # vendor and *modify* an LGPL library, that changes, and this comment is
+      # where to start.
+      - name: Fail on copyleft Python dependencies
         run: |
-          pip-licenses --format=csv --with-urls > licences.csv
-          if grep -Ei '(^|,)"?(GPL|AGPL|LGPL|SSPL)' licences.csv; then
-            echo "::error::Copyleft dependency found. A permissive licence is foreclosed by these."
+          pip-licenses --format=csv --with-urls > licences-python.csv
+          if grep -Ein '(^|[,"[:space:]([])(A?GPL|SSPL)[-0-9v ]|GNU (Affero )?General Public' licences-python.csv; then
+            echo "::error::GPL/AGPL/SSPL Python dependency. Cannot be shipped under the commercial licence — see LICENSING.md."
             exit 1
           fi
+
+      - name: Fail on copyleft Node dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx --yes license-checker-rseidelsohn \
+            --production --csv --out ../licences-node.csv
+          cd ..
+          if grep -Ein '(^|[,"[:space:]([])(A?GPL|SSPL)[-0-9v ]|GNU (Affero )?General Public' licences-node.csv; then
+            echo "::error::GPL/AGPL/SSPL Node dependency. Cannot be shipped under the commercial licence — see LICENSING.md."
+            exit 1
+          fi
+
+      - name: Report LGPL dependencies
+        run: |
+          # Not a failure — a standing note of what has to stay unmodified
+          # and dynamically linked for both licences to hold.
+          grep -Ehi 'LGPL' licences-*.csv || echo "None."
       - uses: actions/upload-artifact@v4
         with:
           name: licences
-          path: licences.csv
+          path: licences-*.csv
 
   tests:
     name: Tests

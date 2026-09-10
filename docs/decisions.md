@@ -42,11 +42,40 @@ as though it does.
 
 
 
-**Licensing.** Proprietary for now, developed as though already public, because
-open-sourcing later is a possibility worth keeping cheap. Four rules preserve it: keep
-copyright consolidated (CLA + DCO before any external merge — this is what otherwise
-traps projects in their first licence); never commit a secret, since publication
-publishes the whole history; avoid copyleft *dependencies*, enforced in CI, or a
-permissive licence is foreclosed; keep licensed clinical content out of the tree. Root
-`LICENSE` reads "All rights reserved" until the choice is made. When it is, the
-recommendation is AGPL-3.0 plus a commercial dual licence.
+**Licensing — decided.** **AGPL-3.0, plus a commercial licence**, as this document
+recommended while the choice was open. `LICENSE` is the AGPL text;
+[LICENSING.md](../LICENSING.md) says which of the two applies to whom.
+
+The AGPL was chosen over a permissive licence for one reason: section 13. A hospital
+running VitaCore for its own patients owes nothing, but anyone offering a *modified*
+version to other people as a service has to publish their changes. Without that, the
+predictable outcome for a system like this is a vendor taking the work, improving it,
+selling it back to Nigerian hospitals as a hosted product, and keeping the
+improvements. The commercial licence exists for the cases the AGPL genuinely does not
+fit — a host that cannot publish, a vendor embedding it, an institution whose
+procurement bars copyleft — and it is what makes the project fundable without closing
+it.
+
+Three of the four preserving rules stay, and one changes shape:
+
+- **Copyright stays consolidated.** [CLA.md](../CLA.md) plus DCO sign-off on every
+  commit. This is not optional under dual-licensing: a contribution received under the
+  AGPL alone could never appear in a commercially licensed copy, and the second licence
+  would stop being offerable without anybody noticing until a customer asked.
+  Contributors keep their copyright; the CLA grants a licence and assigns nothing.
+- **Never commit a secret.** Publication publishes the whole history. CI runs gitleaks
+  over the full history, not just the diff.
+- **No GPL, AGPL or SSPL dependencies** — still enforced in CI, and now for a sharper
+  reason than before. It is not that they clash with our licence; they clash with the
+  *commercial* one, because we have no right to relicense somebody else's copyleft
+  code. LGPL is allowed and reported on every run: it exists to permit an unmodified
+  library being used from a differently-licensed program, and Next.js reaches libvips
+  through sharp for image handling.
+- **Licensed clinical content stays out of the tree.** Unchanged, and the reason is in
+  the SNOMED CT decision above.
+
+**No per-file licence headers.** The FSF recommends one at the top of every source
+file. 350-odd files of boilerplate would bury the comments that explain *why* code is
+shaped the way it is, which are the ones a maintainer actually needs. `LICENSE`,
+`LICENSING.md` and the README statement are unambiguous about what the terms are, and
+that is what the terms have to be: unambiguous.

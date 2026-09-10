@@ -62,6 +62,20 @@ INSTALLED_APPS = [
     # the store the goods arrive at is a form that does nothing, so they belong
     # together.
     "inventory",
+    # Procedures and theatre in one app: a theatre case is a procedure with a
+    # room and a team, and splitting them would put the operation note in one
+    # app and the thing it describes in another.
+    "procedures",
+    # Its own app so a hospital that does not provide maternity can leave it
+    # entirely alone — AC-173. Nothing outside it imports from it.
+    "maternity",
+    # Reports are live queries over the other apps and own no tables.
+    "reporting",
+    # The external API facade. Owns no tables; reads the hospital.
+    "integration",
+    # The patient portal: its own accounts, sessions and cookie,
+    # sharing nothing with staff authentication. AC-184.
+    "portal",
     "notifications",
     "audit",
 ]
@@ -147,6 +161,14 @@ CSRF_COOKIE_SAMESITE = "Lax"
 COOKIES_MAY_TRAVEL_IN_CLEAR = env.bool("COOKIES_MAY_TRAVEL_IN_CLEAR", default=False)
 SESSION_COOKIE_SECURE = not (DEBUG or COOKIES_MAY_TRAVEL_IN_CLEAR)
 CSRF_COOKIE_SECURE = not (DEBUG or COOKIES_MAY_TRAVEL_IN_CLEAR)
+
+# AC-189. Who has clinically signed off the round times, overdue windows,
+# escalation thresholds, triage targets and consent wording in this
+# deployment. Empty by default and deliberately hostile: until a hospital
+# names somebody, every clinical default reports itself as unreviewed on the
+# limitations screen — because that is the truth, and a clinician must never
+# infer a review that has not happened.
+CLINICAL_CONTENT_REVIEWER = env("CLINICAL_CONTENT_REVIEWER", default="")
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"

@@ -4,7 +4,7 @@ Nothing is deleted: the merged-away record is kept, marked, and pointed at the s
 so an old chart number, referral letter or receipt still resolves.
 """
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from audit.models import AuditEvent
 
@@ -54,10 +54,29 @@ def merge_patients(*, source, target, actor, reason, request=None):
 
     moved = {}
     for relation in _reassignable_relations():
-        manager = getattr(source, relation.get_accessor_name())
-        count = manager.update(**{relation.field.name: target})
+        # Through the model's own manager rather than the reverse accessor.
+        # A reverse *one-to-one* accessor raises when there is nothing on the
+        # other side, so `getattr(source, ...)` blows up on a patient who
+        # happens to have no birth record — which is nearly all of them. A
+        # filtered update works the same way for both kinds of relation.
+        model = relation.related_model
+        field = relation.field.name
+        try:
+            with transaction.atomic():
+                count = model._base_manager.filter(**{field: source}).update(
+                    **{field: target}
+                )
+        except IntegrityError:
+            # A one-to-one that the survivor already has: two records that each
+            # carry the same singular thing. Merging them would need somebody to
+            # decide which is right, and that is not a decision this function
+            # can make.
+            raise ValidationError(
+                f"Both records carry a {model._meta.verbose_name}, and a patient "
+                f"can only have one. Resolve that before merging."
+            )
         if count:
-            moved[relation.related_model._meta.label] = count
+            moved[model._meta.label] = count
 
     source.status = Patient.MERGED
     source.merged_into = target

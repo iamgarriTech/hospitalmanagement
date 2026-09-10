@@ -31,5 +31,23 @@ backend/snapshots/
 # os / editor
 .DS_Store
 .idea/
+.vscode/
 *.swp
+*~
+
+# tooling caches
+.ruff_cache/
+.mypy_cache/
+*.tsbuildinfo
+
+# personal scratch — notes, screenshots and prompts that belong to whoever is
+# working here rather than to the project. Kept out of the repository so a
+# contributor's local clutter never lands in a pull request.
 ignoreitllm
+/scratch/
+/notes/
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.pdf

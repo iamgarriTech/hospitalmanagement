@@ -47,6 +47,8 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = [
     "accounts", "audit", "billing", "clinical", "config", "core", "facilities",
-    "imaging", "inpatient", "insurance", "inventory", "laboratory",
-    "notifications", "patients", "pharmacy", "visits",
+    "imaging", "inpatient", "insurance", "integration", "inventory",
+    "laboratory",
+    "maternity", "notifications", "patients", "pharmacy", "procedures",
+    "portal", "reporting", "visits",
 ]

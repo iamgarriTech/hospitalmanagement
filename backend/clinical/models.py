@@ -381,3 +381,195 @@ class VitalSigns(models.Model):
         if self.systolic_bp and self.diastolic_bp:
             return f"{self.systolic_bp}/{self.diastolic_bp}"
         return None
+
+
+# --- referrals --------------------------------------------------------------
+#
+# Here rather than in an app of their own: a referral is a clinical
+# communication about a patient — a reason, a question, and what was sent —
+# and it belongs beside the encounter that prompted it.
+
+
+class Referral(models.Model):
+    """Sending a patient to somebody else. AC-164, AC-165.
+
+    Internal and external in one model, because the clinical content is
+    identical — who, why, what question, what was sent, what came back — and
+    only the destination differs. Two models would mean writing the letter
+    generator twice.
+    """
+
+    INTERNAL = "internal"
+    EXTERNAL = "external"
+    KIND_CHOICES = [
+        (INTERNAL, "Within this hospital group"),
+        (EXTERNAL, "To another organisation"),
+    ]
+
+    DRAFT = "draft"
+    SENT = "sent"
+    ACCEPTED = "accepted"
+    SEEN = "seen"
+    DECLINED = "declined"
+    CANCELLED = "cancelled"
+    STATUS_CHOICES = [
+        (DRAFT, "Draft"), (SENT, "Sent"), (ACCEPTED, "Accepted"),
+        (SEEN, "Patient seen"), (DECLINED, "Declined"), (CANCELLED, "Cancelled"),
+    ]
+
+    ROUTINE = "routine"
+    URGENT = "urgent"
+    TWO_WEEK = "two_week"
+    URGENCY_CHOICES = [
+        (ROUTINE, "Routine"), (URGENT, "Urgent"),
+        (TWO_WEEK, "Urgent, suspected cancer"),
+    ]
+
+    reference = models.CharField(max_length=30, unique=True)
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    patient = models.ForeignKey(
+        "patients.Patient", on_delete=models.PROTECT, related_name="referrals"
+    )
+    facility = models.ForeignKey(
+        "facilities.Facility", on_delete=models.PROTECT, related_name="referrals"
+    )
+    encounter = models.ForeignKey(
+        Encounter, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referrals",
+        help_text="The consultation this came out of, where there was one.",
+    )
+    visit = models.ForeignKey(
+        "visits.Visit", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referrals",
+    )
+    admission = models.ForeignKey(
+        "inpatient.Admission", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referrals",
+    )
+
+    # --- internal destination ---
+    to_department = models.ForeignKey(
+        "facilities.Department", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referrals_in",
+    )
+    to_clinician = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referrals_received",
+        help_text="Named clinician, where the referral is to a person rather than "
+                  "a department.",
+    )
+
+    # --- external destination ---
+    to_organisation = models.CharField(max_length=200, blank=True)
+    to_external_clinician = models.CharField(max_length=200, blank=True)
+    to_address = models.TextField(blank=True)
+
+    # --- the clinical content ---
+    reason = models.TextField(help_text="Why this patient is being referred.")
+    clinical_question = models.TextField(
+        help_text="What is being asked of the person receiving it. A referral "
+                  "without a question is a transfer of responsibility, not a "
+                  "request for an opinion."
+    )
+    what_was_sent = models.TextField(
+        blank=True,
+        help_text="Results, images and letters that went with it.",
+    )
+    urgency = models.CharField(max_length=10, choices=URGENCY_CHOICES, default=ROUTINE)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=DRAFT)
+
+    referred_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="referrals_made"
+    )
+    referred_at = models.DateTimeField(default=timezone.now)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    # --- what came back. AC-165 ---
+    outcome = models.TextField(
+        blank=True, help_text="What the receiving clinician found or advised."
+    )
+    outcome_recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="referral_outcomes_recorded",
+    )
+    outcome_recorded_at = models.DateTimeField(null=True, blank=True)
+
+    # AC-166. Counted rather than stored, because the letter is assembled from
+    # the record on every read — which is what makes a reprint identical
+    # rather than merely intended to be.
+    print_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-referred_at", "-id"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(reason=""), name="referral_states_a_reason"
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(clinical_question=""),
+                name="referral_asks_a_question",
+            ),
+            # An internal referral goes to a department or a person; an
+            # external one goes to a named organisation. Neither may be blank,
+            # or the referral goes nowhere.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(kind="internal", to_department__isnull=False)
+                    | models.Q(kind="internal", to_clinician__isnull=False)
+                    | models.Q(kind="external") & ~models.Q(to_organisation="")
+                ),
+                name="referral_has_a_destination",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(status__in=["seen", "declined"])
+                | models.Q(outcome_recorded_at__isnull=False),
+                name="closed_referral_records_its_outcome",
+            ),
+        ]
+        permissions = [
+            ("make_referral", "Can refer a patient"),
+            ("record_referral_outcome", "Can record what a referral came back with"),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} — {self.patient.full_name}"
+
+    @property
+    def destination(self):
+        """Where it is going, in words, whichever kind it is."""
+        if self.kind == self.INTERNAL:
+            if self.to_clinician is not None:
+                return self.to_clinician.full_name
+            return self.to_department.name if self.to_department else "—"
+        parts = [self.to_external_clinician, self.to_organisation]
+        return ", ".join(part for part in parts if part)
+
+    @property
+    def is_open(self):
+        return self.status in (self.DRAFT, self.SENT, self.ACCEPTED)
+
+
+class ReferralPrint(models.Model):
+    """Every time a referral letter was produced. AC-166.
+
+    A row per print rather than a counter alone, because "who printed this
+    patient's referral, and when" is a question that gets asked — and a
+    counter cannot answer it.
+    """
+
+    referral = models.ForeignKey(
+        Referral, on_delete=models.CASCADE, related_name="prints"
+    )
+    printed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name="referral_prints",
+    )
+    printed_at = models.DateTimeField(default=timezone.now)
+    is_reprint = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-printed_at", "-id"]
+
+    def __str__(self):
+        kind = "Reprint" if self.is_reprint else "Print"
+        return f"{kind} of {self.referral.reference}"

@@ -70,6 +70,16 @@ class Patient(models.Model):
     given_name = models.CharField(max_length=100)
     other_names = models.CharField(max_length=100, blank=True)
 
+    # AC-167. An unconscious patient with no wallet still needs a record, and
+    # they need it now — before anybody knows their name. The temporary
+    # identity below is deliberately obvious rather than plausible, so nobody
+    # mistakes "Unknown Male 0041" for a real name, and the flag is what makes
+    # the record findable for merging once somebody identifies them.
+    is_unidentified = models.BooleanField(
+        default=False,
+        help_text="Registered before the patient could be identified.",
+    )
+
     date_of_birth = models.DateField(null=True, blank=True)
     date_of_birth_is_estimated = models.BooleanField(
         default=False,
@@ -241,3 +251,48 @@ class NextOfKin(models.Model):
 
     def __str__(self):
         return f"{self.full_name} ({self.relationship})"
+
+
+def register_unidentified(*, facility, sex="unknown", estimated_age_years=None,
+                          actor=None):
+    """AC-167. A record for somebody nobody can name yet.
+
+    The temporary identity is obvious on sight — "Unknown Male 0041" — because
+    a plausible-looking placeholder is one somebody will eventually treat as
+    real, and the whole point is that this record gets merged the moment
+    anybody identifies the patient.
+
+    What the ambulance crew could say — what they were wearing, where they
+    were found — belongs on the emergency episode rather than here. It
+    describes an arrival, not a person, and once the patient is identified it
+    would be nonsense sitting on their permanent record.
+    """
+    from django.utils import timezone
+
+    sequence, _ = NumberSequence.objects.get_or_create(
+        key="unidentified_patient_number",
+        defaults={"prefix": "UNK", "include_year": False, "width": 4},
+    )
+    tag = NumberSequence.allocate(sequence.key)
+
+    date_of_birth = None
+    estimated = False
+    if estimated_age_years is not None:
+        # A birth date good enough to calculate a drug dose from, marked as
+        # estimated so nobody later reads it as fact.
+        date_of_birth = timezone.localdate().replace(
+            year=timezone.localdate().year - int(estimated_age_years)
+        )
+        estimated = True
+
+    label = {"male": "Male", "female": "Female"}.get(sex, "Patient")
+    return Patient.objects.create(
+        facility=facility,
+        family_name=tag,
+        given_name=f"Unknown {label}",
+        sex=sex,
+        date_of_birth=date_of_birth,
+        date_of_birth_is_estimated=estimated,
+        is_unidentified=True,
+        registered_by=actor,
+    )

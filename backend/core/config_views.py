@@ -1,8 +1,12 @@
 """Configuration endpoints that have no better home than their own module:
 departments, clinics and identifier formats.
 """
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from audit.models import AuditEvent
 from core.permissions import HasPermission
@@ -150,3 +154,24 @@ class NumberSequenceViewSet(viewsets.ModelViewSet):
                    "next_preview": sequence.format(sequence.next_value)},
             request=self.request,
         )
+
+
+class LimitationsView(APIView):
+    """What this software does not check. AC-189.
+
+    Available to anybody signed in, with no permission of its own. A clinician
+    must be able to find out what is *not* running without an administrator
+    granting them something first — and there is nothing sensitive here, only
+    an honest account of the software's limits.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        responses={200: OpenApiTypes.OBJECT},
+        summary="Every check that is absent, unlicensed or unreviewed",
+    )
+    def get(self, request):
+        from core.limitations import report
+
+        return Response(report())
