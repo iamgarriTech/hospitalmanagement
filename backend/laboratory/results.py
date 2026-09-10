@@ -11,7 +11,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from audit.models import AuditEvent
-from notifications.models import Notification
+from notifications import outbox
+from notifications.models import Notification, OutboundMessage
 
 from .models import LabOrderItem, LabResult
 
@@ -138,6 +139,7 @@ def _raise_critical_alert(result, *, actor, request=None):
         resource_type="laboratory.LabResult",
         resource_id=str(result.pk),
     )
+    _email_the_clinician(result)
     AuditEvent.record(
         action="lab.critical_result_flagged",
         actor=actor,
@@ -151,6 +153,42 @@ def _raise_critical_alert(result, *, actor, request=None):
             "notified": order.ordered_by.email,
         },
         request=request,
+    )
+
+
+def _email_the_clinician(result):
+    """Nudge the ordering clinician outside the application. AC-181.
+
+    Queued, never sent from here. `outbox.queue` is one INSERT and cannot
+    reach the network, so a mail provider having a bad afternoon cannot slow
+    down or roll back the transaction that has just recorded a potassium of
+    7.2 — guarantee 10. Whether the message ever leaves the building is
+    settled later by `manage.py send_outbox`, where the only thing at risk is
+    the message.
+
+    **The body carries no clinical detail.** An in-app notification is read by
+    somebody who has authenticated; an email is read by whoever holds the
+    phone. So this says a result is waiting and where to look, and the number
+    itself stays inside the hospital.
+    """
+    order = result.order_item.order
+    clinician = order.ordered_by
+    if not clinician.email:
+        return None
+    return outbox.queue(
+        channel=OutboundMessage.EMAIL,
+        to_address=clinician.email,
+        subject="A critical laboratory result needs you",
+        body=(
+            f"A result flagged critical is waiting for you at "
+            f"{order.facility.name}. Sign in to see it and record what you "
+            f"did about it.\n\n"
+            f"This message deliberately contains no clinical detail."
+        ),
+        source_type="laboratory.LabResult",
+        source_id=result.pk,
+        facility=order.facility,
+        patient_reference=order.patient.hospital_number,
     )
 
 
